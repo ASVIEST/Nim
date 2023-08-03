@@ -592,6 +592,34 @@ proc inheritBindings(c: PContext, x: var TCandidate, expectedType: PType) =
     if t == u or t == nil or u == nil or t.kind == tyAnything or u.kind == tyAnything:
       continue
     case t.kind
+    of tyAnything:
+      # this only makes sense if the return type is generic param and the number of generic params is one,
+      # so it trying to replace generic param with a value from fakeType and then get type from expr.
+      # this type must be equal to fakeType(to confirm that we not lost info.)
+
+      let genericParams = x.calleeSym.ast[genericParamsPos]
+      if genericParams.len > 1:
+        # only one param can be resolved
+        return
+      let param = genericParams[0]
+
+      var fixedBindings: TIdTable
+      copyIdTable(fixedBindings, x.bindings)
+      idTablePut(fixedBindings, param.typ, expectedType)#fakeType)
+
+      let returnType = generateInstance(
+        c,
+        x.calleeSym,
+        fixedBindings,
+        param.info
+      ).typ[0]
+
+      
+      if returnType == expectedType:
+        # return type is potentially T
+        stackPut(param.typ, u) # (T, int)
+      continue
+
     of ConcreteTypes, tyGenericInvocation, tyUncheckedArray:
       # nested, add all the types to stack
       let
