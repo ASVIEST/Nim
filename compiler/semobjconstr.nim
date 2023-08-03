@@ -449,6 +449,10 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags; expectedType: PType 
       # we have to watch out, there are also 'owned proc' types that can be used
       # multiple times as long as they don't have closures.
       result.typ.flags.incl tfHasOwned
+
+  if inferGenericTypes in c.features and (expectedType.kind == tyGenericInst and result.typ.kind == tyGenericBody) and result.typ.sym == expectedType[0].sym:
+    result.typ = expectedType
+
   if t.kind != tyObject:
     return localErrorNode(c, result, if t.kind != tyGenericBody:
       "object constructor needs an object type".dup(addDeclaredLoc(c.config, t))
