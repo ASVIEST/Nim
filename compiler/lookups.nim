@@ -571,7 +571,7 @@ type
   TLookupFlag* = enum
     checkAmbiguity, checkUndeclared, checkModule, checkPureEnumFields
 
-proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
+proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]; expectedType: PType = nil): PSym =
   const allExceptModule = {low(TSymKind)..high(TSymKind)} - {skModule, skPackage}
   case n.kind
   of nkIdent, nkAccQuoted:
@@ -595,7 +595,12 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]): PSym =
           errorUseQualifier(c, n.info, candidates)
 
     if result == nil and checkUndeclared in flags:
-      result = errorUndeclaredIdentifierHint(c, n, ident)
+      if inferGenericTypes in c.features and ident.s == "_" and expectedType != nil:
+        # var x: Test[int, float] = Test[int, _](x: 3)
+        # TODO: it must also support Test[_, _] = Test[int, float](x: 3)
+        result = expectedType.sym
+      else:
+        result = errorUndeclaredIdentifierHint(c, n, ident)
     elif checkAmbiguity in flags and result != nil and amb:
       result = errorUseQualifier(c, n.info, result, amb)
     c.isAmbiguous = amb

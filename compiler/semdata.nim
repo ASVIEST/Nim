@@ -132,11 +132,11 @@ type
     computeRequiresInit*: proc (c: PContext, t: PType): bool {.nimcall.}
     hasUnresolvedArgs*: proc (c: PContext, n: PNode): bool
 
-    semOperand*: proc (c: PContext, n: PNode, flags: TExprFlags = {}): PNode {.nimcall.}
+    semOperand*: proc (c: PContext, n: PNode, flags: TExprFlags = {}; expectedType: PType = nil): PNode {.nimcall.}
     semConstBoolExpr*: proc (c: PContext, n: PNode): PNode {.nimcall.} # XXX bite the bullet
     semOverloadedCall*: proc (c: PContext, n, nOrig: PNode,
                               filter: TSymKinds, flags: TExprFlags, expectedType: PType = nil): PNode {.nimcall.}
-    semTypeNode*: proc(c: PContext, n: PNode, prev: PType): PType {.nimcall.}
+    semTypeNode*: proc(c: PContext, n: PNode, prev: PType; expectedType: PType = nil): PType {.nimcall.}
     semInferredLambda*: proc(c: PContext, pt: TIdTable, n: PNode): PNode
     semGenerateInstance*: proc (c: PContext, fn: PSym, pt: TIdTable,
                                 info: TLineInfo): PSym

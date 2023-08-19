@@ -1458,8 +1458,8 @@ proc semBlockType(c: PContext, n: PNode, prev: PType): PType =
   c.p.breakInLoop = oldBreakInLoop
   dec(c.p.nestedBlockCounter)
 
-proc semGenericParamInInvocation(c: PContext, n: PNode): PType =
-  result = semTypeNode(c, n, nil)
+proc semGenericParamInInvocation(c: PContext, n: PNode, expectedType: PType): PType =
+  result = semTypeNode(c, n, nil, expectedType)
   n.typ = makeTypeDesc(c, result)
 
 proc trySemObjectTypeForInheritedGenericInst(c: PContext, n: PNode, t: PType): bool =
@@ -1483,7 +1483,7 @@ proc trySemObjectTypeForInheritedGenericInst(c: PContext, n: PNode, t: PType): b
   var newf = newNodeI(nkRecList, n.info)
   semRecordNodeAux(c, t.n, check, pos, newf, t)
 
-proc semGeneric(c: PContext, n: PNode, s: PSym, prev: PType): PType =
+proc semGeneric(c: PContext, n: PNode, s: PSym, prev: PType; expectedType: PType = nil): PType =
   if s.typ == nil:
     localError(c.config, n.info, "cannot instantiate the '$1' $2" %
                [s.name.s, s.kind.toHumanStr])
@@ -1504,7 +1504,7 @@ proc semGeneric(c: PContext, n: PNode, s: PSym, prev: PType): PType =
 
   if t.kind == tyForward:
     for i in 1..<n.len:
-      var elem = semGenericParamInInvocation(c, n[i])
+      var elem = semGenericParamInInvocation(c, n[i], nil)
       addToResult(elem)
     return
   elif t.kind != tyGenericBody:
@@ -1515,7 +1515,7 @@ proc semGeneric(c: PContext, n: PNode, s: PSym, prev: PType): PType =
   else:
     var m = newCandidate(c, t)
     m.isNoCall = true
-    matches(c, n, copyTree(n), m)
+    matches(c, n, copyTree(n), m, expectedType)
 
     if m.state != csMatch:
       var err = "cannot instantiate "
@@ -1841,7 +1841,7 @@ proc semTypeIdent(c: PContext, n: PNode): PSym =
       localError(c.config, n.info, "identifier expected")
       result = errorSym(c, n)
 
-proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
+proc semTypeNode(c: PContext, n: PNode, prev: PType; expectedType: PType = nil): PType =
   result = nil
   inc c.inTypeContext
 
@@ -1854,7 +1854,7 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
     result = semTypeOf(c, n[0], prev)
     if result.kind == tyTypeDesc: result.flags.incl tfExplicit
   of nkPar:
-    if n.len == 1: result = semTypeNode(c, n[0], prev)
+    if n.len == 1: result = semTypeNode(c, n[0], prev, expectedType)
     else:
       result = semAnonTuple(c, n, prev)
   of nkTupleConstr: result = semAnonTuple(c, n, prev)
@@ -2011,7 +2011,7 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType): PType =
     of mRef: result = semAnyRef(c, n, tyRef, prev)
     of mPtr: result = semAnyRef(c, n, tyPtr, prev)
     of mTuple: result = semTuple(c, n, prev)
-    else: result = semGeneric(c, n, s, prev)
+    else: result = semGeneric(c, n, s, prev, expectedType)
   of nkDotExpr:
     let typeExpr = semExpr(c, n)
     if typeExpr.typ.isNil:

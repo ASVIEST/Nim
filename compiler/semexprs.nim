@@ -49,10 +49,10 @@ template rejectEmptyNode(n: PNode) =
   # No matter what a nkEmpty node is not what we want here
   if n.kind == nkEmpty: illFormedAst(n, c.config)
 
-proc semOperand(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
+proc semOperand(c: PContext, n: PNode, flags: TExprFlags = {}; expectedType: PType = nil): PNode =
   rejectEmptyNode(n)
   # same as 'semExprWithType' but doesn't check for proc vars
-  result = semExpr(c, n, flags + {efOperand})
+  result = semExpr(c, n, flags + {efOperand}, expectedType)
   if result.typ != nil:
     # XXX tyGenericInst here?
     if result.typ.kind == tyProc and hasUnresolvedParams(result, {efOperand}):
@@ -315,7 +315,7 @@ proc semConv(c: PContext, n: PNode; expectedType: PType = nil): PNode =
 
   result = newNodeI(nkConv, n.info)
 
-  var targetType = semTypeNode(c, n[0], nil)
+  var targetType = semTypeNode(c, n[0], nil, expectedType)
   case targetType.skipTypes({tyDistinct}).kind
   of tyTypeDesc:
     internalAssert c.config, targetType.len > 0
@@ -2996,7 +2996,7 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}, expectedType: PType 
           {checkUndeclared, checkModule, checkPureEnumFields}
         else:
           {checkUndeclared, checkModule, checkAmbiguity, checkPureEnumFields}
-      s = qualifiedLookUp(c, n, checks)
+      s = qualifiedLookUp(c, n, checks, expectedType)
       if s == nil:
         return
     if c.matchedConcept == nil: semCaptureSym(s, c.p.owner)
@@ -3192,7 +3192,8 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}, expectedType: PType 
   of nkCurly: result = semSetConstr(c, n, expectedType)
   of nkBracket:
     result = semArrayConstr(c, n, flags, expectedType)
-  of nkObjConstr: result = semObjConstr(c, n, flags, expectedType)
+  of nkObjConstr:
+    result = semObjConstr(c, n, flags, expectedType)
   of nkLambdaKinds: result = semProcAux(c, n, skProc, lambdaPragmas, flags)
   of nkDerefExpr: result = semDeref(c, n)
   of nkAddr:

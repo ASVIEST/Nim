@@ -2068,7 +2068,7 @@ template matchesVoidProc(t: PType): bool =
     (t.kind == tyBuiltInTypeClass and t[0].kind == tyProc)
 
 proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
-                        argSemantized, argOrig: PNode): PNode =
+                        argSemantized, argOrig: PNode; expectedType: PType = nil): PNode =
   var
     fMaybeStatic = f.skipTypes({tyDistinct})
     arg = argSemantized
@@ -2282,9 +2282,9 @@ proc paramTypesMatchAux(m: var TCandidate, f, a: PType,
           if result != nil: m.baseTypeMatch = true
 
 proc paramTypesMatch*(m: var TCandidate, f, a: PType,
-                      arg, argOrig: PNode): PNode =
+                      arg, argOrig: PNode; expectedType: PType = nil): PNode =
   if arg == nil or arg.kind notin nkSymChoices:
-    result = paramTypesMatchAux(m, f, a, arg, argOrig)
+    result = paramTypesMatchAux(m, f, a, arg, argOrig, expectedType)
   else:
     # CAUTION: The order depends on the used hashing scheme. Thus it is
     # incorrect to simply use the first fitting match. However, to implement
@@ -2355,7 +2355,7 @@ proc setSon(father: PNode, at: int, son: PNode) =
   #  father[i] = newNodeIT(nkEmpty, son.info, getSysType(tyVoid))
 
 # we are allowed to modify the calling node in the 'prepare*' procs:
-proc prepareOperand(c: PContext; formal: PType; a: PNode): PNode =
+proc prepareOperand(c: PContext; formal: PType; a: PNode; expectedType: PType = nil): PNode =
   if formal.kind == tyUntyped and formal.len != 1:
     # {tyTypeDesc, tyUntyped, tyTyped, tyProxy}:
     # a.typ == nil is valid
@@ -2363,7 +2363,7 @@ proc prepareOperand(c: PContext; formal: PType; a: PNode): PNode =
   elif a.typ.isNil:
     if formal.kind == tyIterable:
       let flags = {efDetermineType, efAllowStmt, efWantIterator, efWantIterable}
-      result = c.semOperand(c, a, flags)
+      result = c.semOperand(c, a, flags, expectedType)
     else:
       # XXX This is unsound! 'formal' can differ from overloaded routine to
       # overloaded routine!
@@ -2372,7 +2372,7 @@ proc prepareOperand(c: PContext; formal: PType; a: PNode): PNode =
                   #else: {efDetermineType, efAllowStmt}
                   #elif formal.kind == tyTyped: {efDetermineType, efWantStmt}
                   #else: {efDetermineType}
-      result = c.semOperand(c, a, flags)
+      result = c.semOperand(c, a, flags, expectedType)
   else:
     result = a
     considerGenSyms(c, result)
@@ -2422,7 +2422,7 @@ proc findFirstArgBlock(m: var TCandidate, n: PNode): int =
       result = a2
     else: break
 
-proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var IntSet) =
+proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var IntSet; expectedType: PType = nil) =
 
   template noMatch() =
     c.mergeShadowScope #merge so that we don't have to resem for later overloads
@@ -2465,6 +2465,9 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
   let firstArgBlock = findFirstArgBlock(m, n)
   while a < n.len:
     c.openShadowScope
+    var expectedParamType: PType = nil
+    if expectedType != nil:
+      expectedParamType = expectedType[a]
 
     if a >= formalLen-1 and f < formalLen and m.callee.n[f].typ.isVarargsUntyped:
       formal = m.callee.n[f].sym
@@ -2578,9 +2581,9 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
         else:
           m.baseTypeMatch = false
           m.typedescMatched = false
-          n[a] = prepareOperand(c, formal.typ, n[a])
+          n[a] = prepareOperand(c, formal.typ, n[a], expectedParamType)
           arg = paramTypesMatch(m, formal.typ, n[a].typ,
-                                    n[a], nOrig[a])
+                                    n[a], nOrig[a], expectedParamType)
           if arg == nil:
             noMatch()
           if m.baseTypeMatch:
@@ -2634,7 +2637,7 @@ proc partialMatch*(c: PContext, n, nOrig: PNode, m: var TCandidate) =
   var marker = initIntSet()
   matchesAux(c, n, nOrig, m, marker)
 
-proc matches*(c: PContext, n, nOrig: PNode, m: var TCandidate) =
+proc matches*(c: PContext, n, nOrig: PNode, m: var TCandidate; expectedType: PType = nil) =
   if m.magic in {mArrGet, mArrPut}:
     m.state = csMatch
     m.call = n
@@ -2645,7 +2648,7 @@ proc matches*(c: PContext, n, nOrig: PNode, m: var TCandidate) =
       inc m.exactMatches
     return
   var marker = initIntSet()
-  matchesAux(c, n, nOrig, m, marker)
+  matchesAux(c, n, nOrig, m, marker, expectedType)
   if m.state == csNoMatch: return
   # check that every formal parameter got a value:
   for f in 1..<m.callee.n.len:
