@@ -642,6 +642,8 @@ proc inheritBindings(c: PContext, x: var TCandidate, expectedType: PType) =
   for i in 0 ..< flatUnbound.len():
     x.bindings.idTablePut(flatUnbound[i], flatBound[i])
 
+proc addResult(c: PContext, n: PNode, t: PType, owner: TSymKind)
+
 proc semResolvedCall(c: PContext, x: var TCandidate,
                      n: PNode, flags: TExprFlags;
                      expectedType: PType = nil): PNode =
@@ -681,6 +683,21 @@ proc semResolvedCall(c: PContext, x: var TCandidate,
           x.call.add newSymNode(s, n.info)
         else:
           internalAssert c.config, false
+  
+  if inferGenericTypes in c.features and finalCallee.typ != nil and finalCallee.typ[0] != nil and finalCallee.typ[0].kind == tyAnything and not gp.isGenericParams:
+    # handle deferred proc with auto result type
+    finalCallee.typ[0] = expectedType
+    openScope(c)
+    pushOwner(c, finalCallee) # for auto chaining
+    pushProcCon(c, finalCallee)
+    
+    addResult(c, finalCallee.ast, expectedType, skProc)
+    finalCallee.ast[bodyPos] = hloBody(c, semProcBody(c, finalCallee.ast[bodyPos], expectedType))
+    trackProc(c, finalCallee, finalCallee.ast[bodyPos])
+    
+    popOwner(c)
+    popProcCon(c)
+    closeScope(c)
 
   result = x.call
   instGenericConvertersSons(c, result, x)

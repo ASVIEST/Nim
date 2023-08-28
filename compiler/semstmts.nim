@@ -2062,7 +2062,7 @@ proc semMethodPrototype(c: PContext; s: PSym; n: PNode) =
       methodDef(c.graph, c.idgen, s)
     else:
       localError(c.config, n.info, "'method' needs a parameter that has an object type")
-
+import deferred_procs
 proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
                 validPragmas: TSpecialWords, flags: TExprFlags = {}): PNode =
   result = semProcAnnotation(c, n, validPragmas)
@@ -2301,10 +2301,15 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
         localError(c.config, n.info, errGenericLambdaNotAllowed)
     else:
       pushProcCon(c, s)
-      let isDeferredResolvedProc = inferGenericTypes in c.features and s.typ[0].kind == tyAnything and n[genericParamsPos].kind == nkEmpty
-      # Skip all proc with auto type to deffered resolution.
-      # Better is skip only auto type that can't be simply resolved
-      if (n[genericParamsPos].kind == nkEmpty or s.kind in {skMacro, skTemplate}) and not isDeferredResolvedProc:
+      let maybeDeferredResolved = inferGenericTypes in c.features and 
+        (
+          s.typ != nil and 
+          s.typ[0] != nil and
+          s.typ[0].kind == tyAnything and 
+          n[genericParamsPos].kind == nkEmpty
+        )
+
+      if n[genericParamsPos].kind == nkEmpty or s.kind in {skMacro, skTemplate}:
         # Macros and Templates can have generic parameters, but they are only
         # used for overload resolution (there is no instantiation of the symbol)
         if s.kind notin {skMacro, skTemplate} and s.magic == mNone: paramsTypeCheck(c, s.typ)
@@ -2321,11 +2326,18 @@ proc semProcAux(c: PContext, n: PNode, kind: TSymKind,
               s.typ[0]
             else:
               nil
-        # semantic checking also needed with importc in case used in VM
-        s.ast[bodyPos] = hloBody(c, semProcBody(c, n[bodyPos], resultType))
-        # unfortunately we cannot skip this step when in 'system.compiles'
-        # context as it may even be evaluated in 'system.compiles':
-        trackProc(c, s, s.ast[bodyPos])
+
+        var deferred: bool
+        if maybeDeferredResolved:
+          deferred = procBodyDeferred(c, n[bodyPos])
+
+        if not deferred:
+          # semantic checking also needed with importc in case used in VM
+          s.ast[bodyPos] = hloBody(c, semProcBody(c, n[bodyPos], resultType))
+          # unfortunately we cannot skip this step when in 'system.compiles'
+          # context as it may even be evaluated in 'system.compiles':
+          trackProc(c, s, s.ast[bodyPos])
+
       else:
         if (s.typ[0] != nil and s.kind != skIterator):
           addDecl(c, newSym(skUnknown, getIdent(c.cache, "result"), c.idgen, s, n.info))
