@@ -25,7 +25,7 @@ proc procBodyDeferredAux(c: PContext, n: PNode, res: var bool, affectsResult, is
         let gp = s.ast[genericParamsPos]
         let typ = s.getReturnType
 
-        if gp.isGenericParams and n[0].kind == nkIdent and (affectsResult or isLast):
+        if (gp.isGenericParams or typ.kind == tyAnything) and n[0].kind == nkIdent and (affectsResult or isLast):
           # genericProc()
           res = true
                 
