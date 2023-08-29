@@ -1,10 +1,14 @@
 import ast, semdata, lookups, types
+type
+  DeferredProcFlag = enum
+    dpAffectsResult
+    dpIsLast
 
-proc procBodyDeferredAux(c: PContext, n: PNode, res: var bool, affectsResult, isLast = false): bool =
+proc procBodyDeferredAux(c: PContext, n: PNode, res: var bool, flags: set[DeferredProcFlag] = {}): bool =
   # very simple deferred proc checker
   # it cheaper than semProcBody(it calls semExpr)
   proc isDeferredProc(n: PNode): bool =
-    discard procBodyDeferredAux(c, n[bodyPos], result, true)
+    discard procBodyDeferredAux(c, n[bodyPos], result, flags + {dpAffectsResult})
 
   template earlyExit: untyped =
     return true
@@ -13,12 +17,20 @@ proc procBodyDeferredAux(c: PContext, n: PNode, res: var bool, affectsResult, is
   case n.kind:
     of nkStmtList:
       for i, e in n:
-        if procBodyDeferredAux(c, e, res, affectsResult, i == n.len - 1):
+        if procBodyDeferredAux(
+          c, e, res, 
+          flags + (
+            if i == n.len - 1:
+              {dpAffectsResult, dpIsLast}
+            else:
+              {dpAffectsResult}
+          )
+        ):
           break
     of nkAsgn:
       if n[0].ident.s == "result":
         # result = ...
-        discard procBodyDeferredAux(c, n[1], res, true)
+        discard procBodyDeferredAux(c, n[1], res, flags + {dpAffectsResult})
     
     of nkCall:
       # for generic calls must be full generic param list
@@ -34,11 +46,11 @@ proc procBodyDeferredAux(c: PContext, n: PNode, res: var bool, affectsResult, is
           gp.isGenericParams or
           (typ.kind == tyAnything and isDeferredProc(procDef))
 
-        if genericOrDeferred and n[0].kind == nkIdent and (affectsResult or isLast):
+        if genericOrDeferred and n[0].kind == nkIdent and flags * {dpAffectsResult, dpIsLast} != {}:
           # generic or deferred proc
           res = true
                 
-        elif typ != nil and not isLast:
+        elif typ != nil and dpIsLast notin flags:
           res = false
           earlyExit
     else:
