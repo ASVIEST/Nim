@@ -2990,12 +2990,15 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}, expectedType: PType 
           s = f.sym
           break
     if s == nil:
-      let checks = if efNoEvaluateGeneric in flags:
+      var checks = if efNoEvaluateGeneric in flags:
           {checkUndeclared, checkPureEnumFields}
         elif efInCall in flags:
           {checkUndeclared, checkModule, checkPureEnumFields}
         else:
           {checkUndeclared, checkModule, checkAmbiguity, checkPureEnumFields}
+      if efSkipUnderscore notin flags:
+        checks.incl checkUnderscore
+
       s = qualifiedLookUp(c, n, checks, expectedType)
       if s == nil:
         return

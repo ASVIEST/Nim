@@ -658,7 +658,14 @@ proc semVarOrLet(c: PContext, n: PNode, symkind: TSymKind): PNode =
 
     var typ: PType = nil
     if a[^2].kind != nkEmpty:
-      typ = semTypeNode(c, a[^2], nil)
+      typ = semTypeNode(
+        c, a[^2], nil,
+
+        if a[^1].kind == nkObjConstr:
+          semTypeNode(c, a[^1][0], nil)
+        else:
+          nil
+      )
 
     var typFlags: TTypeAllowedFlags
 

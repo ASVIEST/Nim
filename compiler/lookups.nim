@@ -569,7 +569,7 @@ proc lookUp*(c: PContext, n: PNode): PSym =
 
 type
   TLookupFlag* = enum
-    checkAmbiguity, checkUndeclared, checkModule, checkPureEnumFields
+    checkAmbiguity, checkUndeclared, checkModule, checkPureEnumFields, checkUnderscore
 
 proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]; expectedType: PType = nil): PSym =
   const allExceptModule = {low(TSymKind)..high(TSymKind)} - {skModule, skPackage}
@@ -599,7 +599,7 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]; expectedTy
         # var x: Test[int, float] = Test[int, _](x: 3)
         # TODO: it must also support Test[_, _] = Test[int, float](x: 3)
         result = expectedType.sym
-      else:
+      elif checkUnderscore in flags:
         result = errorUndeclaredIdentifierHint(c, n, ident)
     elif checkAmbiguity in flags and result != nil and amb:
       result = errorUseQualifier(c, n.info, result, amb)

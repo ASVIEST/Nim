@@ -76,6 +76,7 @@ type
     efNoDiagnostics,
     efTypeAllowed # typeAllowed will be called after
     efWantNoDefaults
+    efSkipUnderscore
 
   TExprFlags* = set[TExprFlag]
 
