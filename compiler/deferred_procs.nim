@@ -3,12 +3,18 @@ type
   DeferredProcFlag = enum
     dpAffectsResult
     dpIsLast
+    dpResultVarDeclared
 
-proc procBodyDeferredAux(c: PContext, n: PNode, res: var bool, flags: set[DeferredProcFlag] = {}): bool =
+proc procBodyDeferredAux(
+  c: PContext, n: PNode, res: var bool, 
+  globalFlags: var set[DeferredProcFlag], 
+  flags: set[DeferredProcFlag] = {}): bool =
   # very simple deferred proc checker
   # it cheaper than semProcBody(it calls semExpr)
-  proc isDeferredProc(n: PNode): bool =
-    discard procBodyDeferredAux(c, n[bodyPos], result, flags + {dpAffectsResult})
+  template isDeferredProc(n: PNode): bool =
+    var result: bool
+    discard procBodyDeferredAux(c, n[bodyPos], result, globalFlags, flags + {dpAffectsResult})
+    result
 
   template earlyExit: untyped =
     return true
@@ -16,9 +22,11 @@ proc procBodyDeferredAux(c: PContext, n: PNode, res: var bool, flags: set[Deferr
   var i = 1
   case n.kind:
     of nkStmtList:
+      var globalFlags = set[DeferredProcFlag].default()
       for i, e in n:
         if procBodyDeferredAux(
-          c, e, res, 
+          c, e, res,
+          globalFlags,
           flags + (
             if i == n.len - 1:
               {dpAffectsResult, dpIsLast}
@@ -28,10 +36,14 @@ proc procBodyDeferredAux(c: PContext, n: PNode, res: var bool, flags: set[Deferr
         ):
           break
     of nkAsgn:
-      if n[0].ident.s == "result":
+      if n[0].ident.s == "result" and dpResultVarDeclared notin flags + globalFlags:
         # result = ...
-        discard procBodyDeferredAux(c, n[1], res, flags + {dpAffectsResult})
-    
+        discard procBodyDeferredAux(c, n[1], res, globalFlags, flags + {dpAffectsResult})
+    of nkVarSection, nkLetSection:
+      for identDefs in n:
+        if identDefs[0].ident.s == "result":
+          globalFlags.incl dpResultVarDeclared
+
     of nkCall:
       # for generic calls must be full generic param list
       var ident = n[0]
@@ -57,4 +69,5 @@ proc procBodyDeferredAux(c: PContext, n: PNode, res: var bool, flags: set[Deferr
       discard
 
 proc procBodyDeferred*(c: PContext, n: PNode): bool =
-  discard procBodyDeferredAux(c, n, result)
+  var globalFlags = set[DeferredProcFlag].default()
+  discard procBodyDeferredAux(c, n, result, globalFlags)
