@@ -1483,7 +1483,7 @@ proc trySemObjectTypeForInheritedGenericInst(c: PContext, n: PNode, t: PType): b
   var newf = newNodeI(nkRecList, n.info)
   semRecordNodeAux(c, t.n, check, pos, newf, t)
 
-proc semGeneric(c: PContext, n: PNode, s: PSym, prev: PType; expectedType: PType = nil): PType =
+proc semGeneric(c: PContext, n: PNode, s: PSym, prev: PType; expectedType: PType = nil, flags: TExprFlags = {}): PType =
   if s.typ == nil:
     localError(c.config, n.info, "cannot instantiate the '$1' $2" %
                [s.name.s, s.kind.toHumanStr])
@@ -1515,7 +1515,7 @@ proc semGeneric(c: PContext, n: PNode, s: PSym, prev: PType; expectedType: PType
   else:
     var m = newCandidate(c, t)
     m.isNoCall = true
-    matches(c, n, copyTree(n), m, expectedType)
+    matches(c, n, copyTree(n), m, expectedType, flags)
 
     if m.state != csMatch:
       var err = "cannot instantiate "
@@ -1841,7 +1841,7 @@ proc semTypeIdent(c: PContext, n: PNode): PSym =
       localError(c.config, n.info, "identifier expected")
       result = errorSym(c, n)
 
-proc semTypeNode(c: PContext, n: PNode, prev: PType; expectedType: PType = nil): PType =
+proc semTypeNode(c: PContext, n: PNode, prev: PType; expectedType: PType = nil, flags: TExprFlags = {}): PType =
   result = nil
   inc c.inTypeContext
 
@@ -2011,7 +2011,7 @@ proc semTypeNode(c: PContext, n: PNode, prev: PType; expectedType: PType = nil):
     of mRef: result = semAnyRef(c, n, tyRef, prev)
     of mPtr: result = semAnyRef(c, n, tyPtr, prev)
     of mTuple: result = semTuple(c, n, prev)
-    else: result = semGeneric(c, n, s, prev, expectedType)
+    else: result = semGeneric(c, n, s, prev, expectedType, flags)
   of nkDotExpr:
     let typeExpr = semExpr(c, n)
     if typeExpr.typ.isNil:

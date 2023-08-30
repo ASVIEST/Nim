@@ -2355,19 +2355,19 @@ proc setSon(father: PNode, at: int, son: PNode) =
   #  father[i] = newNodeIT(nkEmpty, son.info, getSysType(tyVoid))
 
 # we are allowed to modify the calling node in the 'prepare*' procs:
-proc prepareOperand(c: PContext; formal: PType; a: PNode; expectedType: PType = nil): PNode =
+proc prepareOperand(c: PContext; formal: PType; a: PNode; expectedType: PType = nil, flags: TExprFlags = {}): PNode =
   if formal.kind == tyUntyped and formal.len != 1:
     # {tyTypeDesc, tyUntyped, tyTyped, tyProxy}:
     # a.typ == nil is valid
     result = a
   elif a.typ.isNil:
     if formal.kind == tyIterable:
-      let flags = {efDetermineType, efAllowStmt, efWantIterator, efWantIterable}
+      let flags = {efDetermineType, efAllowStmt, efWantIterator, efWantIterable} + flags
       result = c.semOperand(c, a, flags, expectedType)
     else:
       # XXX This is unsound! 'formal' can differ from overloaded routine to
       # overloaded routine!
-      let flags = {efDetermineType, efAllowStmt}
+      let flags = {efDetermineType, efAllowStmt} + flags
                   #if formal.kind == tyIterable: {efDetermineType, efWantIterator}
                   #else: {efDetermineType, efAllowStmt}
                   #elif formal.kind == tyTyped: {efDetermineType, efWantStmt}
@@ -2422,7 +2422,7 @@ proc findFirstArgBlock(m: var TCandidate, n: PNode): int =
       result = a2
     else: break
 
-proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var IntSet; expectedType: PType = nil) =
+proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var IntSet; expectedType: PType = nil, flags: TExprFlags = {}) =
 
   template noMatch() =
     c.mergeShadowScope #merge so that we don't have to resem for later overloads
@@ -2581,7 +2581,7 @@ proc matchesAux(c: PContext, n, nOrig: PNode, m: var TCandidate, marker: var Int
         else:
           m.baseTypeMatch = false
           m.typedescMatched = false
-          n[a] = prepareOperand(c, formal.typ, n[a], expectedParamType)
+          n[a] = prepareOperand(c, formal.typ, n[a], expectedParamType, flags)
           arg = paramTypesMatch(m, formal.typ, n[a].typ,
                                     n[a], nOrig[a], expectedParamType)
           if arg == nil:
@@ -2637,7 +2637,7 @@ proc partialMatch*(c: PContext, n, nOrig: PNode, m: var TCandidate) =
   var marker = initIntSet()
   matchesAux(c, n, nOrig, m, marker)
 
-proc matches*(c: PContext, n, nOrig: PNode, m: var TCandidate; expectedType: PType = nil) =
+proc matches*(c: PContext, n, nOrig: PNode, m: var TCandidate; expectedType: PType = nil, flags: TExprFlags = {}) =
   if m.magic in {mArrGet, mArrPut}:
     m.state = csMatch
     m.call = n
@@ -2648,7 +2648,7 @@ proc matches*(c: PContext, n, nOrig: PNode, m: var TCandidate; expectedType: PTy
       inc m.exactMatches
     return
   var marker = initIntSet()
-  matchesAux(c, n, nOrig, m, marker, expectedType)
+  matchesAux(c, n, nOrig, m, marker, expectedType, flags)
   if m.state == csNoMatch: return
   # check that every formal parameter got a value:
   for f in 1..<m.callee.n.len:
