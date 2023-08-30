@@ -596,6 +596,10 @@ proc qualifiedLookUp*(c: PContext, n: PNode, flags: set[TLookupFlag]; expectedTy
 
     if result == nil and checkUndeclared in flags:
       if inferGenericTypes in c.features and ident.s == "_" and expectedType != nil:
+        if expectedType.kind == tyVoid and expectedType.sym == nil:
+          # expectedType is '_'
+          localError(c.config, n.info, errGenerated, "trying to infer '_' -> '_'")
+          
         # var x: Test[int, float] = Test[int, _](x: 3)
         # TODO: it must also support Test[_, _] = Test[int, float](x: 3)
         result = expectedType.sym
