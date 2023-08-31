@@ -137,3 +137,36 @@ block:
 
   let a = Foo(x: initTable())
   doAssert a.x is Table[int, float]
+
+
+block deferredProcs:
+  proc baz[T]: T =
+    42
+
+  proc bar(): auto =
+    baz()
+
+  proc foo(): auto =
+    bar()
+  
+  proc foo2(): auto =
+    result = bar()
+  
+  var x: int = foo()
+  var y: int = foo2()
+
+  doAssert x == 42
+  doAssert y == 42
+
+block autoInference:
+  proc giveValue[T]: auto = default(T)
+  var x: int = giveValue()
+  
+  doAssert x == int.default
+
+  proc baz[T](): auto = T.default
+  proc bar[T](): auto = baz()
+  proc foo[T](): auto = giveValue()
+  
+  var y: int = foo()
+  doAssert y == int.default

@@ -602,22 +602,7 @@ proc inheritBindings(c: PContext, x: var TCandidate, expectedType: PType) =
         # only one param can be resolved
         return
       let param = genericParams[0]
-
-      var fixedBindings: TIdTable
-      copyIdTable(fixedBindings, x.bindings)
-      idTablePut(fixedBindings, param.typ, u)
-
-      let returnType = generateInstance(
-        c,
-        x.calleeSym,
-        fixedBindings,
-        param.info
-      ).typ[0]
-
-      
-      if returnType == u:
-        # return type is potentially T
-        stackPut(param.typ, u) # (T, int)
+      stackPut(param.typ, u) # (T, int)
       continue
 
     of ConcreteTypes, tyGenericInvocation, tyUncheckedArray:
