@@ -566,7 +566,7 @@ proc inheritBindings(c: PContext, x: var TCandidate, expectedType: PType) =
   ## Helper proc to inherit bound generic parameters from expectedType into x.
   ## Does nothing if 'inferGenericTypes' isn't in c.features
   if inferGenericTypes notin c.features: return
-  if expectedType == nil or x.callee[0] == nil: return # required for inference
+  if c.p.rootExpectedType == nil or x.callee[0] == nil: return # required for inference
 
   var
     flatUnbound: seq[PType]
@@ -585,11 +585,11 @@ proc inheritBindings(c: PContext, x: var TCandidate, expectedType: PType) =
           else: b.skipTypes(toSkip)
     typeStack.add((x, y))
 
-  stackPut(x.callee[0], expectedType)
+  stackPut(x.callee[0], c.p.rootExpectedType)
 
   while typeStack.len() > 0:
     let (t, u) = typeStack.pop()
-    if t == u or t == nil or u == nil or t.kind == tyAnything or u.kind == tyAnything:
+    if t == u or t == nil or u == nil or u.kind == tyAnything:
       continue
     case t.kind
     of tyAnything:
@@ -605,7 +605,7 @@ proc inheritBindings(c: PContext, x: var TCandidate, expectedType: PType) =
 
       var fixedBindings: TIdTable
       copyIdTable(fixedBindings, x.bindings)
-      idTablePut(fixedBindings, param.typ, expectedType)#fakeType)
+      idTablePut(fixedBindings, param.typ, u)
 
       let returnType = generateInstance(
         c,
@@ -615,7 +615,7 @@ proc inheritBindings(c: PContext, x: var TCandidate, expectedType: PType) =
       ).typ[0]
 
       
-      if returnType == expectedType:
+      if returnType == u:
         # return type is potentially T
         stackPut(param.typ, u) # (T, int)
       continue
@@ -660,6 +660,10 @@ proc semResolvedCall(c: PContext, x: var TCandidate,
       result.typ = newTypeS(x.fauxMatch, c)
       if result.typ.kind == tyError: incl result.typ.flags, tfCheckedForDestructor
     return
+
+  if expectedType != nil and expectedType.kind != tyAnything:
+    c.p.rootExpectedType = expectedType
+
   let gp = finalCallee.ast[genericParamsPos]
   if gp.isGenericParams:
     if x.calleeSym.kind notin {skMacro, skTemplate}:

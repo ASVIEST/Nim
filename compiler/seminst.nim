@@ -33,6 +33,10 @@ proc pushProcCon*(c: PContext; owner: PSym) =
   new(x)
   x.owner = owner
   x.next = c.p
+
+  if c.p != nil:
+    x.rootExpectedType = c.p.rootExpectedType
+  
   c.p = x
 
 const

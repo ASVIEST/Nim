@@ -34,6 +34,8 @@ type
   PProcCon* = ref TProcCon
   TProcCon* {.acyclic.} = object # procedure context; also used for top-level
                                  # statements
+    rootExpectedType*: PType  # expected type of top-level proc; it simpler than find
+                              # expected type in next proc cons
     owner*: PSym              # the symbol this context belongs to
     resultSym*: PSym          # the result symbol (if we are in a proc)
     nestedLoopCounter*: int   # whether we are in a loop or not
