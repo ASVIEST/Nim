@@ -641,6 +641,22 @@ proc makeVarTupleSection(c: PContext, n, a, def: PNode, typ: PType, symkind: TSy
       lastDef[^1] = val
     result.add(lastDef)
 
+proc getInferedType(c: PContext, a: PNode): PType =
+  if inferGenericTypes notin c.features:
+    return semTypeNode(c, a[^2], nil)
+  
+  if a[^2].kind != nkEmpty:
+    let expectedType =
+      if a[^1].kind == nkObjConstr:
+        semTypeNode(c, a[^1][0], nil, nil, {efSkipUnderscore})
+      else:
+        nil
+
+    result = semTypeNode(
+      c, a[^2], nil,
+      expectedType, {efSkipUnderscore}
+    )
+
 proc semVarOrLet(c: PContext, n: PNode, symkind: TSymKind): PNode =
   var b: PNode
   result = copyNode(n)
@@ -658,16 +674,7 @@ proc semVarOrLet(c: PContext, n: PNode, symkind: TSymKind): PNode =
 
     var typ: PType = nil
     if a[^2].kind != nkEmpty:
-      let expectedType =
-        if a[^1].kind == nkObjConstr:
-          semTypeNode(c, a[^1][0], nil, nil, {efSkipUnderscore})
-        else:
-          nil
-
-      typ = semTypeNode(
-        c, a[^2], nil,
-        expectedType, {efSkipUnderscore}
-      )
+      typ = getInferedType(c, a)
 
     var typFlags: TTypeAllowedFlags
 
@@ -814,16 +821,7 @@ proc semConst(c: PContext, n: PNode): PNode =
 
     var typ: PType = nil
     if a[^2].kind != nkEmpty:
-      let expectedType =
-        if a[^1].kind == nkObjConstr:
-          semTypeNode(c, a[^1][0], nil, nil, {efSkipUnderscore})
-        else:
-          nil
-
-      typ = semTypeNode(
-        c, a[^2], nil,
-        expectedType, {efSkipUnderscore}
-      )
+      typ = getInferedType(c, a)
 
     var typFlags: TTypeAllowedFlags
 
