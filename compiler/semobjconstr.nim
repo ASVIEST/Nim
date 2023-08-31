@@ -450,7 +450,10 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags; expectedType: PType 
       # multiple times as long as they don't have closures.
       result.typ.flags.incl tfHasOwned
   
-  if inferGenericTypes in c.features:
+  block objConstrInfer:
+    if inferGenericTypes notin c.features:
+      break objConstrInfer
+
     let isInferedUnderscore = (
       expectedType.kind == tyGenericInst and
       result.typ.kind == tyGenericInst and
@@ -462,6 +465,27 @@ proc semObjConstr(c: PContext, n: PNode, flags: TExprFlags; expectedType: PType 
       result.typ.kind == tyGenericBody and
       result.typ.sym == expectedType[0].sym
     )
+
+    if isInferedUnderscore:
+      # we need to compare params to prevent code like
+      # let x: T[A, B] = T[C, D](x: A.default, y: B.default)
+      
+      if result.typ[0] != expectedType[0]:
+        break objConstrInfer
+
+      for i in 1 ..< result.typ.len - 1:
+        let t = result.typ[i]
+        if t.kind == tyVoid and t.sym == nil:
+          continue
+
+        if t != expectedType[i]:
+          var msg = "type mismatch: got "
+          msg.add typeToString(t)
+          msg.add(" but expected ")
+          msg.add typeToString(expectedType[i])
+
+          localError(c.config, n.info, msg)
+          break objConstrInfer
 
     if isInferedUnderscore or isInferedWithoutGenericArgs:
       result.typ = expectedType
