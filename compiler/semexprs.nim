@@ -1051,7 +1051,14 @@ proc semIndirectOp(c: PContext, n: PNode, flags: TExprFlags; expectedType: PType
     else:
       n[0] = n0
   else:
-    n[0] = semExpr(c, n[0], {efInCall})
+    n[0] = semExpr(
+      c, n[0], 
+      if efAllowGenericParams in flags:
+        {efInCall, efAllowGenericParams}
+      else:
+        {efInCall}
+    )
+
     let t = n[0].typ
     if t != nil and t.kind in {tyVar, tyLent}:
       n[0] = newDeref(n[0])
@@ -1578,7 +1585,7 @@ proc semDeref(c: PContext, n: PNode): PNode =
   else: result = nil
   #GlobalError(n[0].info, errCircumNeedsPointer)
 
-proc maybeInstantiateGeneric(c: PContext, n: PNode, s: PSym): PNode =
+proc maybeInstantiateGeneric(c: PContext, n: PNode, s: PSym, flags: TExprFlags): PNode =
   ## Instantiates generic if not lacking implicit generics,
   ## otherwise returns n.
   let
@@ -1594,7 +1601,7 @@ proc maybeInstantiateGeneric(c: PContext, n: PNode, s: PSym): PNode =
     # Uncertain the hackiness of this solution.
     result = n
   else:
-    result = explicitGenericInstantiation(c, n, s)
+    result = explicitGenericInstantiation(c, n, s, efAllowGenericParams in flags)
     if result == n:
       n[0] = copyTree(result[0])
     else:
@@ -1677,7 +1684,7 @@ proc semSubscript(c: PContext, n: PNode, flags: TExprFlags): PNode =
       of skProc, skFunc, skMethod, skConverter, skIterator:
         # type parameters: partial generic specialization
         n[0] = semSymGenericInstantiation(c, n[0], s)
-        result = maybeInstantiateGeneric(c, n, s)
+        result = maybeInstantiateGeneric(c, n, s, flags)
       of skMacro, skTemplate:
         if efInCall in flags:
           # We are processing macroOrTmpl[] in macroOrTmpl[](...) call.
@@ -1934,12 +1941,12 @@ proc semReturn(c: PContext, n: PNode): PNode =
   else:
     localError(c.config, n.info, "'return' not allowed here")
 
-proc semProcBody(c: PContext, n: PNode; expectedType: PType = nil): PNode =
+proc semProcBody(c: PContext, n: PNode; expectedType: PType = nil, flags: TExprFlags = {}): PNode =
   when defined(nimsuggest):
     if c.graph.config.expandDone():
       return n
   openScope(c)
-  result = semExpr(c, n, expectedType = expectedType)
+  result = semExpr(c, n, flags, expectedType)
   if c.p.resultSym != nil and not isEmptyType(result.typ):
     if result.kind == nkNilLit:
       # or ImplicitlyDiscardable(result):

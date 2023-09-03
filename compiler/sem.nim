@@ -34,7 +34,7 @@ proc semExpr(c: PContext, n: PNode, flags: TExprFlags = {}, expectedType: PType 
 proc semExprWithType(c: PContext, n: PNode, flags: TExprFlags = {}, expectedType: PType = nil): PNode
 proc semExprNoType(c: PContext, n: PNode): PNode
 proc semExprNoDeref(c: PContext, n: PNode, flags: TExprFlags = {}): PNode
-proc semProcBody(c: PContext, n: PNode; expectedType: PType = nil): PNode
+proc semProcBody(c: PContext, n: PNode; expectedType: PType = nil; flags: TExprFlags = {}): PNode
 
 proc fitNode(c: PContext, formal: PType, arg: PNode; info: TLineInfo): PNode
 proc changeType(c: PContext; n: PNode, newType: PType, check: bool)

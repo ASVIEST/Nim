@@ -602,7 +602,29 @@ proc inheritBindings(c: PContext, x: var TCandidate, expectedType: PType) =
         # only one param can be resolved
         return
       let param = genericParams[0]
-      stackPut(param.typ, u) # (T, int)
+      discard generateInstance(
+        c,
+        x.calleeSym,
+        x.bindings,
+        param.info,
+        true
+      )
+
+      if c.p.resultGenericParam == nil:
+        return
+
+      var upperBindedParam: PType =
+        c.p.resultGenericParam
+
+      while true:
+        let nextParam =
+          c.p.resultGenericParamBindings.idTableGet(upperBindedParam).PType
+        if nextParam == nil: break
+        upperBindedParam = nextParam
+
+      if upperBindedParam == param.typ:
+        # return type is T
+        stackPut(param.typ, u) # (T, int)
       continue
 
     of ConcreteTypes, tyGenericInvocation, tyUncheckedArray:
@@ -731,13 +753,25 @@ proc explicitGenericInstError(c: PContext; n: PNode): PNode =
   localError(c.config, getCallLineInfo(n), errCannotInstantiateX % renderTree(n))
   result = n
 
-proc explicitGenericSym(c: PContext, n: PNode, s: PSym): PNode =
+proc explicitGenericSym(c: PContext, n: PNode, s: PSym; allowGenericParams = false): PNode =
   # binding has to stay 'nil' for this to work!
   var m = newCandidate(c, s, nil)
 
   for i in 1..<n.len:
     let formal = s.ast[genericParamsPos][i-1].typ
     var arg = n[i].typ
+    if allowGenericParams and arg.kind == tyGenericParam and formal.kind == tyGenericParam and formal == s.typ[0]:
+      #proc[t0, t1, ..., T, ...]() where proc
+      # is proc[..., T, ...](...): T
+      if c.p.next != nil:
+        c.p.next.resultGenericParam = formal
+        if not c.p.next.resultGenericParamBindingsExists:
+          initIdTable(c.p.next.resultGenericParamBindings)
+          c.p.next.resultGenericParamBindingsExists = true
+
+        c.p.next.resultGenericParamBindings.idTablePut(formal, arg) # E -> T
+      continue
+
     # try transforming the argument into a static one before feeding it into
     # typeRel
     if formal.kind == tyStatic and arg.kind != tyStatic:
@@ -748,14 +782,14 @@ proc explicitGenericSym(c: PContext, n: PNode, s: PSym): PNode =
         arg.n = evaluated
     let tm = typeRel(m, formal, arg)
     if tm in {isNone, isConvertible}: return nil
-  var newInst = generateInstance(c, s, m.bindings, n.info)
+  var newInst = generateInstance(c, s, m.bindings, n.info, allowGenericParams)
   newInst.typ.flags.excl tfUnresolved
   let info = getCallLineInfo(n)
   markUsed(c, info, s)
   onUse(info, s)
   result = newSymNode(newInst, info)
 
-proc explicitGenericInstantiation(c: PContext, n: PNode, s: PSym): PNode =
+proc explicitGenericInstantiation(c: PContext, n: PNode, s: PSym, allowGenericParams = false): PNode =
   assert n.kind == nkBracketExpr
   for i in 1..<n.len:
     let e = semExprWithType(c, n[i])
@@ -773,7 +807,7 @@ proc explicitGenericInstantiation(c: PContext, n: PNode, s: PSym): PNode =
       localError(c.config, getCallLineInfo(n), errGenerated, "cannot instantiate: '" & renderTree(n) &
          "'; got " & $(n.len-1) & " typeof(s) but expected " & $expected)
       return n
-    result = explicitGenericSym(c, n, s)
+    result = explicitGenericSym(c, n, s, allowGenericParams)
     if result == nil: result = explicitGenericInstError(c, n)
   elif a.kind in {nkClosedSymChoice, nkOpenSymChoice}:
     # choose the generic proc with the proper number of type parameters.

@@ -42,7 +42,7 @@ proc pushProcCon*(c: PContext; owner: PSym) =
 const
   errCannotInstantiateX = "cannot instantiate: '$1'"
 
-iterator instantiateGenericParamList(c: PContext, n: PNode, pt: TIdTable): PSym =
+iterator instantiateGenericParamList(c: PContext, n: PNode, pt: TIdTable; allowGenericParams: bool = false): PSym =
   internalAssert c.config, n.kind == nkGenericParams
   for a in n.items:
     internalAssert c.config, a.kind == nkSym
@@ -57,10 +57,16 @@ iterator instantiateGenericParamList(c: PContext, n: PNode, pt: TIdTable): PSym 
           # keep the generic type and allow the return type to be bound
           # later by semAsgn in return type inference scenario
           t = q.typ
+        elif allowGenericParams and q.typ.kind == tyGenericParam:
+          # use generic param as type instead of real type
+          t = q.typ
         else:
           if q.typ.kind != tyCompositeTypeClass:
             localError(c.config, a.info, errCannotInstantiateX % s.name.s)
           t = errorType(c)
+      elif allowGenericParams and t.kind == tyGenericParam and q.typ.kind == tyGenericParam:
+        # M -> N
+        t = q.typ
       elif t.kind in {tyGenericParam, tyConcept}:
         localError(c.config, a.info, errCannotInstantiateX % q.name.s)
         t = errorType(c)
@@ -113,7 +119,7 @@ proc freshGenSyms(c: PContext; n: PNode, owner, orig: PSym, symMap: var TIdTable
 
 proc addParamOrResult(c: PContext, param: PSym, kind: TSymKind)
 
-proc instantiateBody(c: PContext, n, params: PNode, result, orig: PSym) =
+proc instantiateBody(c: PContext, n, params: PNode, result, orig: PSym; allowGenericParams = false) =
   if n[bodyPos].kind != nkEmpty:
     let procParams = result.typ.n
     for i in 1..<procParams.len:
@@ -142,7 +148,14 @@ proc instantiateBody(c: PContext, n, params: PNode, result, orig: PSym) =
           result.typ[0]
         else:
           nil
-      b = semProcBody(c, b, resultType)
+
+      b = semProcBody(
+        c, b, resultType, 
+        if allowGenericParams:
+          {efAllowGenericParams}
+        else: {}
+      )
+        
     result.ast[bodyPos] = hloBody(c, b)
     excl(result.flags, sfForward)
     trackProc(c, result, result.ast[bodyPos])
@@ -325,7 +338,7 @@ proc fillMixinScope(c: PContext) =
     p = p.next
 
 proc generateInstance(c: PContext, fn: PSym, pt: TIdTable,
-                      info: TLineInfo): PSym =
+                      info: TLineInfo; allowGenericParams = false): PSym =
   ## Generates a new instance of a generic procedure.
   ## The `pt` parameter is a type-unsafe mapping table used to link generic
   ## parameters to their concrete types within the generic instance.
@@ -368,7 +381,7 @@ proc generateInstance(c: PContext, fn: PSym, pt: TIdTable,
   # see ttypeor.nim test.
   var i = 0
   newSeq(entry.concreteTypes, fn.typ.len+gp.len-1)
-  for s in instantiateGenericParamList(c, gp, pt):
+  for s in instantiateGenericParamList(c, gp, pt, allowGenericParams):
     addDecl(c, s)
     entry.concreteTypes[i] = s.typ
     inc i
@@ -394,7 +407,10 @@ proc generateInstance(c: PContext, fn: PSym, pt: TIdTable,
       pragma(c, result, n[pragmasPos], allRoutinePragmas)
     if isNil(n[bodyPos]):
       n[bodyPos] = copyTree(getBody(c.graph, fn))
-    instantiateBody(c, n, fn.typ.n, result, fn)
+    instantiateBody(
+      c, n, fn.typ.n, result, fn, 
+      allowGenericParams
+    )
     sideEffectsCheck(c, result)
     if result.magic notin {mSlice, mTypeOf}:
       # 'toOpenArray' is special and it is allowed to return 'openArray':

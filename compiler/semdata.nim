@@ -36,6 +36,10 @@ type
                                  # statements
     rootExpectedType*: PType  # expected type of top-level proc; it simpler than find
                               # expected type in next proc cons
+    resultGenericParam*: PType
+    resultGenericParamBindings*: TIdTable
+    resultGenericParamBindingsExists*: bool
+
     owner*: PSym              # the symbol this context belongs to
     resultSym*: PSym          # the result symbol (if we are in a proc)
     nestedLoopCounter*: int   # whether we are in a loop or not
@@ -79,6 +83,7 @@ type
     efTypeAllowed # typeAllowed will be called after
     efWantNoDefaults
     efSkipUnderscore
+    efAllowGenericParams
 
   TExprFlags* = set[TExprFlag]
 
@@ -142,7 +147,7 @@ type
     semTypeNode*: proc (c: PContext, n: PNode, prev: PType; expectedType: PType = nil, flags: TExprFlags = {}): PType {.nimcall.}
     semInferredLambda*: proc(c: PContext, pt: TIdTable, n: PNode): PNode
     semGenerateInstance*: proc (c: PContext, fn: PSym, pt: TIdTable,
-                                info: TLineInfo): PSym
+                                info: TLineInfo; allowGenericParams = false): PSym
     includedFiles*: IntSet    # used to detect recursive include files
     pureEnumFields*: TStrTable   # pure enum fields that can be used unambiguously
     userPragmas*: TStrTable
