@@ -345,7 +345,8 @@ template emitData(t: Token) = c.data.add t
 template emitData(t: PredefinedToken) = c.data.add Token(t)
 
 proc genStrLit(c: var GeneratedCode; lit: Literals; litId: LitId): Token =
-  result = Token(c.tokens.getOrIncl "QStr" & $litId)
+  result = c.tokens.getOrIncl "QStr" & $litId
+  let payload = Token(c.tokens.getOrIncl "QStr" & $litId & "Payload")
   if not containsOrIncl(c.emittedStrings, int(litId)):
     let s {.cursor.} = lit.strings[litId]
     emitData "static const struct "
@@ -359,13 +360,24 @@ proc genStrLit(c: var GeneratedCode; lit: Literals; litId: LitId): Token =
     emitData BracketRi
     emitData Semicolon
     emitData CurlyRi
-    emitData result
+    emitData payload
     emitData AsgnOpr
     emitData CurlyLe
     emitData $s.len
     emitData " | NIM_STRLIT_FLAG"
     emitData Comma
     emitData makeCString(s)
+    emitData CurlyRi
+    emitData Semicolon
+
+    emitData "static const NimStringV2 " # TODO: make it more "generic"
+    emitData result
+    emitData AsgnOpr
+    emitData CurlyLe
+    emitData $s.len
+    emitData Comma
+    emitData "(NimStrPayload*)&"
+    emitData payload
     emitData CurlyRi
     emitData Semicolon
 
