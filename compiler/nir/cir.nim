@@ -23,7 +23,7 @@ type
     IgnoreMe = "<unused>"
     EmptyToken = ""
     CurlyLe = "{"
-    CurlyRi = "}"
+    CurlyRi = "\n}"
     ParLe = "("
     ParRi = ")"
     BracketLe = "["
@@ -1105,7 +1105,7 @@ proc generateCode*(inp, outp: string; props: sink TargetProps) =
   writeTokenSeq f, c.protos, c
   writeTokenSeq f, c.code, c
   if c.init.len > 0:
-    f.write "void __attribute__((constructor)) init(void) {"
+    f.write "void __attribute__((constructor)) init(void) {\n"
     writeTokenSeq f, c.init, c
-    f.write "}\n\n"
+    f.write "\n}\n\n"
   f.f.close
