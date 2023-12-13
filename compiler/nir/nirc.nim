@@ -12,11 +12,13 @@
 import ".." / ic / [bitabs, rodfiles]
 import nirinsts, nirtypes, nirlineinfos, nirfiles, cir
 import target_props
+import renderer
 
 proc view(filename: string) =
   let m = load(filename)
   var res = ""
-  allTreesToString m.code, m.lit.strings, m.lit.numbers, m.symnames, res
+  renderAllTrees(m.code, m.lit.strings, m.lit.numbers, m.symnames, m.types, res)
+  # allTreesToString m.code, m.lit.strings, m.lit.numbers, m.symnames, res
   res.add "\n# TYPES\n"
   nirtypes.toString res, m.types
   echo res
