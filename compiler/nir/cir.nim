@@ -404,6 +404,7 @@ proc genGlobal(c: var GeneratedCode; t: Tree; name, typ: NodePos; annotation: st
   let m: string
   if t[name].kind == SymDef:
     let symId = t[name].symId
+    c.needsPrefix.incl symId.int
     m = c.tokens[mangleModuleName(c, c.m.namespace)] & "__" & $symId
     genDisplayName c, symId
   else:
