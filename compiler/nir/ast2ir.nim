@@ -2526,13 +2526,13 @@ template genEmitCode(c: var ProcCon; n: PNode; isAsmStmt: bool) =
   build c.code, info, EmitCode:
     for i in offset..<n.len:
       let it = n[i]
-      case it.kind:
-        of nkStrLit..nkTripleStrLit:
-          c.code.addVerbatim c.lit.strings, info, it.strVal
-        of nkSym:
-          c.code.addSymUse info, toSymId(c, it.sym)
-        else:
-          gen(c, it)
+      case it.kind
+      of nkStrLit..nkTripleStrLit:
+        c.code.addVerbatim c.lit.strings, info, it.strVal
+      of nkSym:
+        c.code.addSymUse info, toSymId(c, it.sym)
+      else:
+        gen(c, it)
 
 import target_props
 proc genAsm(c: var ProcCon; n: PNode) =

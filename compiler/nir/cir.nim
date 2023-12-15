@@ -32,7 +32,7 @@ type
     Semicolon = ";"
     Comma = ", "
     Space = " "
-    Quote = $'"'
+    Quote = "\""
     Colon = ": "
     Dot = "."
     Arrow = "->"
@@ -875,43 +875,43 @@ proc gen(c: var GeneratedCode; t: Tree; n: NodePos) =
       target = cast[EmitTargetKind](t[n.firstSon].rawOperand)
       code = lastSon(t, n)
 
-    case target:
-      of Asm:
-        requireInfo t, n, InPure
+    case target
+    of Asm:
+      requireInfo t, n, InPure
 
-        # Resolve asm overloads (as example for icc inlineAsmSyntax pragma must be specified)
-        var inlineAsmSyntax = c.props.inlineAsmSyntax
-        if haveInfo(t, n, InlineAsmSyntax):
-          inlineAsmSyntax = inlineAsmSyntax * {
-            fetchInfo(t, n, InlineAsmSyntax).infoVal(
-              t, InlineAsmSyntaxKind
-            )
-          }
+      # Resolve asm overloads (as example for icc inlineAsmSyntax pragma must be specified)
+      var inlineAsmSyntax = c.props.inlineAsmSyntax
+      if haveInfo(t, n, InlineAsmSyntax):
+        inlineAsmSyntax = inlineAsmSyntax * {
+          fetchInfo(t, n, InlineAsmSyntax).infoVal(
+            t, InlineAsmSyntaxKind
+          )
+        }
         
-        if inlineAsmSyntax.len > 1:
-          raiseAssert "Ambiguous asm syntax, please specify via inlineAsmSyntax pragma"
+      if inlineAsmSyntax.len > 1:
+        raiseAssert "Ambiguous asm syntax, please specify via inlineAsmSyntax pragma"
         
-        let isBasicAsm = (
-          fetchInfo(t, n, IsGlobal).infoVal(t, bool) or
-          fetchInfo(t, n, InPure).infoVal(t, bool)
-        ) and inlineAsmSyntax != {VisualCPP}
+      let isBasicAsm = (
+        fetchInfo(t, n, IsGlobal).infoVal(t, bool) or
+        fetchInfo(t, n, InPure).infoVal(t, bool)
+      ) and inlineAsmSyntax != {VisualCPP}
 
-        if inlineAsmSyntax.len == 0 and not isBasicAsm:
-          raiseAssert "Your compiler does not support the specified inline assembler"
+      if inlineAsmSyntax.len == 0 and not isBasicAsm:
+        raiseAssert "Your compiler does not support the specified inline assembler"
 
-        if not isBasicAsm:
-          if inlineAsmSyntax == {GCCExtendedAsm}: genGccAsm(c, t, code)
-          elif inlineAsmSyntax == {VisualCPP}: genVisualCPPAsm(c, t, code)
-          else: raiseAssert "Not implemented inline asm syntax"
-        else:
-          assert (
-            isLastSon(t, code, code.firstSon) and
-            t[code.firstSon].kind == Verbatim
-          ), "Invalid basic asm. Basic asm should be only one verbatim"
-          genGccAsm(c, t, code)
+      if not isBasicAsm:
+        if inlineAsmSyntax == {GCCExtendedAsm}: genGccAsm(c, t, code)
+        elif inlineAsmSyntax == {VisualCPP}: genVisualCPPAsm(c, t, code)
+        else: raiseAssert "Not implemented inline asm syntax"
+      else:
+        assert (
+          isLastSon(t, code, code.firstSon) and
+          t[code.firstSon].kind == Verbatim
+        ), "Invalid basic asm. Basic asm should be only one verbatim"
+        genGccAsm(c, t, code)
 
-      of Code:
-        raiseAssert"not supported"
+    of Code:
+      raiseAssert"not supported"
 
   of EmitTarget:
     discard
