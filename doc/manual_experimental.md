@@ -2515,3 +2515,19 @@ NimFunctor()(1)
 ```
 Notice we use the overload of `()` to have the same semantics in Nim, but on the `importcpp` we import the functor as a function. 
 This allows to easy interop with functions that accepts for example a `const` operator in its signature. 
+
+
+inlineAsmSyntax pragma
+=============
+
+.. note:: This logic is only available for NIR, otherwise the pragma will be ignored.
+`inlineAsmSyntax` pragma allowing specify target inline assembler syntax in `asm` stmt.
+It allows to resolve some overloads.
+
+For example, ICC supports both gcc and vcc. `inlineAsmSyntax` says to produce asm code that uses gcc's inline asm syntax. It also prevents compiling code with different of the target CC inline asm syntax, i.e. it will not allow gcc inline asm code to be compiled with vcc.
+```nim
+proc nothing() =
+  asm {.inlineAsmSyntax: "gcc".}"""
+    nop
+  """
+```
