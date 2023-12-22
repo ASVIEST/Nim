@@ -17,7 +17,9 @@
 ##   }
 ##   AsmInputOperand {
 ##     # [asmSymbolicName] constraint (nimExpr)
-##     AsmInjectExpr {symUse nimVariableName} # (rvalue)
+##     AsmInjectExpr {
+##       nodeUse nimVariableName
+##     } # (rvalue)
 ##     asmSymbolicName # default: ""
 ##     constraint
 ## }
@@ -32,9 +34,10 @@
 # It can be useful for better asm analysis and 
 # easy to use in all nim targets.
 
-import nirinsts, nirtypes
+import nirinsts
 import std / assertions
 import .. / ic / bitabs
+
 
 type
   Det = enum
@@ -45,77 +48,62 @@ type
     Clobber
     GotoLabel
     Delimiter
-  
-  AsmValKind = enum
-    StrVal
-    # SymVal
-    NodeVal
-    EmptyVal
-
-  AsmVal = object
-    case kind: AsmValKind
-    of StrVal:
-      s: string
-    # of SymVal:
-    #   sym: SymId
-    of NodeVal:
-      n: NodePos
-    of EmptyVal:
-      discard
-
-  AsmToken = tuple[sec: int, val: AsmVal, det: Det]
 
   AsmNodeKind* = enum
+    # 1 byte
+    AsmStrVal # str val
+    AsmNodeUse# node pos
+    AsmEmpty
+
+    AsmInjectExpr
+
     AsmTemplate
     AsmOutputOperand
     AsmInputOperand
     AsmClobber
     AsmGotoLabel
 
-    AsmInjectExpr
-    AsmStrVal
+  GccAsmNode* = object
+    x: uint32
+  
+  GccAsmTree* = object
+    nodes*: seq[GccAsmNode]
+  
+  AsmToken = tuple[sec: int, node: GccAsmNode, det: Det]
+  AsmContext* = object
+    strings*: BiTable[string]
 
-  GccAsmNode* = ref object
-    case kind*: AsmNodeKind
-      of AsmOutputOperand, AsmInputOperand:
-        symbolicName: string
-        constraint: string
-        injectExprs: seq[GccAsmNode]
-      of AsmStrVal, AsmClobber, AsmGotoLabel:
-        s: string
-      of AsmInjectExpr:
-        n: NodePos
-      of AsmTemplate:
-        sons: seq[GccAsmNode]
+const
+  LastAtomicValue = AsmEmpty
+  NodeKindBits = 8'u32
+  NodeKindMask = (1'u32 shl NodeKindBits) - 1'u32
 
+template kind*(n: GccAsmNode): AsmNodeKind = AsmNodeKind(n.x and NodeKindMask)
+template operand*(n: GccAsmNode): uint32 = (n.x shr NodeKindBits)
 
-proc toVal(n: NodePos): AsmVal =
-  AsmVal(kind: NodeVal, n: n)
+template toX(k: AsmNodeKind; operand: uint32): uint32 =
+  uint32(k) or (operand shl NodeKindBits)
 
-proc toVal(s: string): AsmVal =
-  AsmVal(kind: StrVal, s: s)
+proc makeStrValNode(s: string; strings: var BiTable[string]): GccAsmNode =
+  GccAsmNode(x: toX(AsmStrVal, uint32(strings.getOrIncl(s))))
 
-# proc toVal(s: SymId): AsmVal =
-#   AsmVal(kind: SymVal, sym: s)
-
-proc empty(): AsmVal =
-  AsmVal(kind: EmptyVal)
-
-proc toNode(val: AsmVal): GccAsmNode =
-  # get str node or 
-  case val.kind:
-    of StrVal: GccAsmNode(kind: AsmStrVal, s: val.s)
-    of NodeVal: GccAsmNode(kind: AsmInjectExpr, n: val.n)
-    else: raiseAssert"unsupported val"
+proc makeNodePosNode(n: NodePos): GccAsmNode =
+  GccAsmNode(x: toX(AsmNodeUse, uint32(n)))
 
 proc emptyNode(kind: AsmNodeKind): GccAsmNode =
-  GccAsmNode(kind: kind)
+  GccAsmNode(x: uint32(kind))
 
-iterator asmTokens(t: Tree, n: NodePos; verbatims: BiTable[string]): AsmToken =
+proc makeEmpty(): GccAsmNode =
+  emptyNode(AsmEmpty)
+
+iterator asmTokens(
+  t: Tree, n: NodePos, verbatims: BiTable[string];
+  c: var AsmContext
+): AsmToken =
   template addCaptured: untyped =
     yield (
       sec, 
-      captured.toVal, 
+      captured.makeStrValNode(c.strings), 
       det
     )
     captured = ""
@@ -183,6 +171,7 @@ iterator asmTokens(t: Tree, n: NodePos; verbatims: BiTable[string]): AsmToken =
             continue
 
           # Inject expr parens
+          # countParens()
 
           if s[i] == '(':
             inc nPar
@@ -197,30 +186,40 @@ iterator asmTokens(t: Tree, n: NodePos; verbatims: BiTable[string]): AsmToken =
             # no need parsing of expr
             continue
 
-          case s[i]:
-            of ':':
-              if sec == 0: # det == AsmTemplate
-                yield (
-                  sec, 
-                  s[left..i - 1].toVal, 
-                  det
-                )
+          
+          if s[i] == ':':
+            # if sec == 0: # det == AsmTemplate
+            #   yield (
+            #     sec, 
+            #     s[left..i - 1].makeStrValNode(c.strings), 
+            #     det
+            #   )
               
-              maybeAddCaptured()
-              inc sec
-              # inc det
-              left = i + 1
+            maybeAddCaptured()
+            inc sec
+            # inc det
+            left = i + 1
               
-              captured = ""
+            captured = ""
 
-              if sec in 1..2:
-                # default det for operands
-                det = Constraint
-              elif sec == 3:
-                det = Clobber
-              elif sec == 4:
-                det = GotoLabel
+            if sec in 1..2:
+              # default det for operands
+              det = Constraint
+            elif sec == 3:
+              det = Clobber
+            elif sec == 4:
+              det = GotoLabel
+          
+          # elif s[i] == '\n' and sec == 0:
+          #   # split the string
+          #   maybeAddCaptured()
+          #   left = i + 1
 
+          elif sec == 0 and det == AsmTemplate:
+            captured.add s[i]
+
+          elif sec > 0:
+            case s[i]:
             of '[':
               # start of asm symbolic name
               det = SymbolicName
@@ -244,7 +243,7 @@ iterator asmTokens(t: Tree, n: NodePos; verbatims: BiTable[string]): AsmToken =
               
               maybeAddCaptured()
             
-            elif sec > 0 and s[i] == ',':
+            of ',':
               if sec in 1..2:
                 det = Constraint
               
@@ -253,18 +252,17 @@ iterator asmTokens(t: Tree, n: NodePos; verbatims: BiTable[string]): AsmToken =
               
               yield (
                 sec,
-                empty(),
+                makeEmpty(),
                 Delimiter
               )
             
             # Capture
-            elif sec == 0 and det == AsmTemplate:
-              # asm template should not change,
-              # so we don't skip spaces, etc.
-              captured.add s[i]
+            # elif sec == 0 and det == AsmTemplate:
+            #   # asm template should not change,
+            #   # so we don't skip spaces, etc.
+            #   captured.add s[i]
 
             elif (
-              sec > 0 and 
               det in {
                 SymbolicName, 
                 Constraint, 
@@ -273,8 +271,7 @@ iterator asmTokens(t: Tree, n: NodePos; verbatims: BiTable[string]): AsmToken =
                 GotoLabel
               } and 
               s[i] notin {' ', '\n', '\t'}
-            ):
-              captured.add s[i]
+            ): captured.add s[i]
             else: discard
 
       else:
@@ -285,7 +282,7 @@ iterator asmTokens(t: Tree, n: NodePos; verbatims: BiTable[string]): AsmToken =
         
         yield (
           sec,
-          ch.toVal,
+          ch.makeNodePosNode,
           det
         )
 
@@ -293,7 +290,7 @@ iterator asmTokens(t: Tree, n: NodePos; verbatims: BiTable[string]): AsmToken =
     # : not specified 
     yield (
       sec, 
-      verbatims[t[lastSon(t, n)].litId].toVal, 
+      verbatims[t[lastSon(t, n)].litId].makeStrValNode(c.strings), 
       det
     )
   elif sec > 2:
@@ -311,69 +308,115 @@ const
     AsmGotoLabel
   ]
 
-iterator parseGccAsm*(t: Tree, n: NodePos; verbatims: BiTable[string]): GccAsmNode =
+proc patch(tree: var GccAsmTree; pos: PatchPos) =
+  let pos = pos.int
+  let k = tree.nodes[pos].kind
+  assert k > LastAtomicValue
+  let distance = int32(tree.nodes.len - pos)
+  assert distance > 0
+  tree.nodes[pos].x = toX(k, cast[uint32](distance))
+
+proc nextChild(tree: GccAsmTree; pos: var int) {.inline.} =
+  if tree.nodes[pos].kind > LastAtomicValue:
+    assert tree.nodes[pos].operand > 0'u32
+    inc pos, tree.nodes[pos].operand.int
+  else:
+    inc pos
+
+iterator sons*(tree: GccAsmTree; n: NodePos): NodePos =
+  var pos = n.int
+  assert tree.nodes[pos].kind > LastAtomicValue
+  let last = pos + tree.nodes[pos].operand.int
+  inc pos
+  while pos < last:
+    yield NodePos pos
+    nextChild tree, pos
+
+proc prepare*(tree: var GccAsmTree; kind: AsmNodeKind): PatchPos =
+  result = PatchPos tree.nodes.len
+  tree.nodes.add GccAsmNode(x: toX(kind, 1'u32))
+
+template build*(tree: var GccAsmTree; kind: AsmNodeKind; body: untyped) =
+  let pos = prepare(tree, kind)
+  body
+  patch(tree, pos)
+
+proc parseGccAsm*(t: Tree, n: NodePos; verbatims: BiTable[string]; c: var AsmContext): GccAsmTree =
+  result = GccAsmTree()
   var
+    pos = prepare(result, AsmTemplate)
     oldSec = 0
-    curr = emptyNode(AsmTemplate)
-    inInjectExpr = false
 
-  template initNextNode: untyped =
-    curr = emptyNode(sections[i.sec])
-
-  for i in asmTokens(t, n, verbatims):
-    when false:
-      echo i
-    if i.sec != oldSec:
-      # current node fully filled
-      yield curr
-      initNextNode()
-
-    case i.det:
-      of Delimiter:
-        yield curr
-        initNextNode()
-
-      of AsmTemplate:
-        curr.sons.add i.val.toNode
-      
-      of SymbolicName:
-        curr.symbolicName = i.val.s
-      of Constraint:
-        let s = i.val.s
-        if s[0] != '"' or s[^1] != '"':
-          raiseAssert "constraint must be started and ended by " & '"'
-        curr.constraint = s[1..^2]
-      of InjectExpr:
-        # only one inject expr for now
-        curr.injectExprs.add i.val.toNode
-
-      of Clobber:
-        let s = i.val.s
-        if s[0] != '"' or s[^1] != '"':
-          raiseAssert "clobber must be started and ended by " & '"'
-        curr.s = s[1..^2]
-      
-      of GotoLabel:
-        curr.s = i.val.s
-
-    oldSec = i.sec
+    # current operand info
+    symbolicName = makeStrValNode("", c.strings)
+    constraint = emptyNode(AsmStrVal)
+    injectExpr: seq[GccAsmNode] = @[]
   
-  yield curr
+  template addLastOperand =
+    result.build AsmInjectExpr: 
+      for i in injectExpr:
+        result.nodes.add i
+    result.nodes.add symbolicName
+    result.nodes.add constraint
+    
+    symbolicName = makeStrValNode("", c.strings)
+    constraint = emptyNode(AsmStrVal)
+    injectExpr = @[]
 
-proc `$`*(node: GccAsmNode): string =
-  case node.kind:
-    of AsmStrVal, AsmClobber, AsmGotoLabel: node.s
-    of AsmOutputOperand, AsmInputOperand:
-      var res = '[' & node.symbolicName & ']' & '"' & node.constraint & '"' & "(`"
-      for i in node.injectExprs:
-        res.add $i
-      res.add "`)"
-      res
-    of AsmTemplate:
-      var res = ""
-      for i in node.sons:
-        res.add $i
-        res.add '\n'
-      res
-    of AsmInjectExpr:
-      "inject node: " & $node.n.int
+  for i in asmTokens(t, n, verbatims, c):
+    when defined(nir.debugAsmParsing):
+      echo i
+
+    if i.sec != oldSec:
+      # next Node
+      patch(result, pos)
+      if oldSec in {1, 2}:
+        result.build sections[oldSec]:
+          addLastOperand
+      pos = prepare(result, sections[i.sec])
+    
+    case i.det:
+    of AsmTemplate, Clobber, GotoLabel: result.nodes.add i.node
+    
+    of SymbolicName: symbolicName = i.node
+    of Constraint: constraint = i.node
+    of InjectExpr: injectExpr.add i.node
+    of Delimiter:
+      if i.sec in {1, 2}: addLastOperand
+    oldSec = i.sec
+  if oldSec in {1, 2}: addLastOperand
+  patch(result, pos)
+
+
+# Repr's
+proc addRepr(t: GccAsmTree, n: NodePos; r: var string; strings = BiTable[string].default; offset = 0) =
+  for i in 1..offset:
+    r.add "  "
+  
+  case t.nodes[n.int].kind:
+    of AsmStrVal:
+      r.add '"'
+      r.add strings[LitId t.nodes[n.int].operand]
+      r.add '"'
+
+    of AsmNodeUse: r.add "NodeUse " & $t.nodes[n.int].operand # just a nodepos
+    of AsmEmpty: discard
+    
+    else:
+      r.add $t.nodes[n.int].kind
+      r.add " {"
+      r.add '\n'
+
+      for i in sons(t, n):
+        addRepr(t, i, r, strings, offset + 1)
+        r.add "\n"
+      
+      for i in 1..offset: r.add "  "
+      r.add "}\n"
+
+proc repr*(t: GccAsmTree; strings = BiTable[string].default): string =
+  result = ""
+  var i = 0
+  while i < t.nodes.len:
+    addRepr t, NodePos(i), result, strings
+    nextChild t, i
