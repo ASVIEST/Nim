@@ -383,10 +383,9 @@ proc storeType(t: PType; c: var PackedEncoder; m: var PackedModule): PackedItemI
 proc toPackedLib(l: PLib; c: var PackedEncoder; m: var PackedModule): PackedLib =
   ## the plib hangs off the psym via the .annex field
   if l.isNil: return
-  result.kind = l.kind
-  result.generated = l.generated
-  result.isOverridden = l.isOverridden
-  result.name = toLitId($l.name, m)
+  result = PackedLib(kind: l.kind, generated: l.generated,
+    isOverridden: l.isOverridden, name: toLitId($l.name, m)
+  )
   storeNode(result, l, path)
 
 proc storeSym*(s: PSym; c: var PackedEncoder; m: var PackedModule): PackedItemId =
@@ -434,11 +433,11 @@ proc addModuleRef(n: PNode; ir: var PackedTree; c: var PackedEncoder; m: var Pac
   let info = n.info.toPackedInfo(c, m)
   if n.typ != n.sym.typ:
     ir.addNode(kind = nkModuleRef, operand = 3.int32, # spans 3 nodes in total
-               info = info,
+               info = info, flags = n.flags,
                typeId = storeTypeLater(n.typ, c, m))
   else:
     ir.addNode(kind = nkModuleRef, operand = 3.int32, # spans 3 nodes in total
-              info = info)
+              info = info, flags = n.flags)
   ir.addNode(kind = nkNone, info = info,
              operand = toLitId(n.sym.itemId.module.FileIndex, c, m).int32)
   ir.addNode(kind = nkNone, info = info,
@@ -830,7 +829,8 @@ proc loadNodes*(c: var PackedDecoder; g: var PackedModuleGraph; thisModule: int;
     result.ident = getIdent(c.cache, g[thisModule].fromDisk.strings[n.litId])
   of nkSym:
     result.sym = loadSym(c, g, thisModule, PackedItemId(module: LitId(0), item: tree[n].soperand))
-    if result.typ == nil: result.typ = result.sym.typ
+    if result.typ == nil and nfOpenSym notin result.flags:
+      result.typ = result.sym.typ
   of externIntLit:
     result.intVal = g[thisModule].fromDisk.numbers[n.litId]
   of nkStrLit..nkTripleStrLit:
@@ -843,7 +843,8 @@ proc loadNodes*(c: var PackedDecoder; g: var PackedModuleGraph; thisModule: int;
     assert n2.kind == nkNone
     transitionNoneToSym(result)
     result.sym = loadSym(c, g, thisModule, PackedItemId(module: n1.litId, item: tree[n2].soperand))
-    if result.typ == nil: result.typ = result.sym.typ
+    if result.typ == nil and nfOpenSym notin result.flags:
+      result.typ = result.sym.typ
   else:
     for n0 in sonsReadonly(tree, n):
       result.addAllowNil loadNodes(c, g, thisModule, tree, n0)
