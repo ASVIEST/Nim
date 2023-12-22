@@ -308,6 +308,8 @@ const
     AsmGotoLabel
   ]
 
+  operandSections = {1, 2}
+
 proc patch(tree: var GccAsmTree; pos: PatchPos) =
   let pos = pos.int
   let k = tree.nodes[pos].kind
@@ -370,7 +372,7 @@ proc parseGccAsm*(t: Tree, n: NodePos; verbatims: BiTable[string]; c: var AsmCon
     if i.sec != oldSec:
       # next Node
       patch(result, pos)
-      if oldSec in {1, 2}:
+      if oldSec in operandSections:
         result.build sections[oldSec]:
           addLastOperand
       pos = prepare(result, sections[i.sec])
@@ -382,9 +384,9 @@ proc parseGccAsm*(t: Tree, n: NodePos; verbatims: BiTable[string]; c: var AsmCon
     of Constraint: constraint = i.node
     of InjectExpr: injectExpr.add i.node
     of Delimiter:
-      if i.sec in {1, 2}: addLastOperand
+      if i.sec in operandSections: addLastOperand
     oldSec = i.sec
-  if oldSec in {1, 2}: addLastOperand
+  if oldSec in operandSections: addLastOperand
   patch(result, pos)
 
 
