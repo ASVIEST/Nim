@@ -99,6 +99,20 @@ proc emptyNode(kind: AsmNodeKind): GccAsmNode =
 proc makeEmpty(): GccAsmNode =
   emptyNode(AsmEmpty)
 
+const
+  sections = [
+    AsmNodeKind.AsmTemplate,
+    AsmOutputOperand,
+    AsmInputOperand,
+    AsmClobber,
+    AsmGotoLabel
+  ]
+  outputOperandSection = 1
+  inputOperandSection = 2
+  clobberSection = 3
+  gotoLabelSection = 4
+  operandSections = {outputOperandSection, inputOperandSection}
+
 type
   TokenizerFlag = enum
     InComment
@@ -187,9 +201,9 @@ template tokenizeString(self; s: string) =
       
       self.det = 
         case self.sec
-        of 1, 2: Constraint
-        of 3: Clobber
-        of 4: GotoLabel
+        of operandSections: Constraint
+        of clobberSection: Clobber
+        of gotoLabelSection: GotoLabel
         else:
           raiseAssert "Invalid section"
 
@@ -242,17 +256,6 @@ iterator asmTokens*(
   if InComment in self.flags:
     raiseAssert "Multi-Line comment is not closed"
 
-
-const
-  sections = [
-    AsmNodeKind.AsmTemplate,
-    AsmOutputOperand,
-    AsmInputOperand,
-    AsmClobber,
-    AsmGotoLabel
-  ]
-
-  operandSections = {1, 2}
 
 proc patch(tree: var GccAsmTree; pos: PatchPos) =
   let pos = pos.int
@@ -365,4 +368,3 @@ proc repr*(t: GccAsmTree; strings = BiTable[string].default): string =
   while i < t.nodes.len:
     addRepr t, NodePos(i), result, strings
     nextChild t, i
-  
