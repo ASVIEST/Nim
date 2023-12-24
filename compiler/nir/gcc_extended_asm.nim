@@ -1,4 +1,4 @@
-## GCC Extended asm stategments nodes that produces from NIR.
+## GCC Extended asm (GAS) stategments nodes that produces from NIR.
 ## It generates iteratively, so parsing doesn't take long
 
 ## Asm stategment structure:
@@ -34,7 +34,7 @@
 # It can be useful for better asm analysis and 
 # easy to use in all nim targets.
 
-import nirinsts
+import nirinsts, nirlineinfos
 import std / assertions
 import .. / ic / bitabs
 
@@ -69,9 +69,12 @@ type
   GccAsmTree* = object
     nodes*: seq[GccAsmNode]
   
-  AsmToken = tuple[sec: int, node: GccAsmNode, det: Det]
+  AsmToken = tuple[sec: int, node: GccAsmNode, det: Det, info: PackedLineInfo]
   AsmContext* = object
     strings*: BiTable[string]
+
+const
+  OutputConstraints = {'=', '+'} # Must be in output constraints
 
 const
   LastAtomicValue = AsmEmpty
@@ -96,208 +99,149 @@ proc emptyNode(kind: AsmNodeKind): GccAsmNode =
 proc makeEmpty(): GccAsmNode =
   emptyNode(AsmEmpty)
 
-iterator asmTokens(
-  t: Tree, n: NodePos, verbatims: BiTable[string];
-  c: var AsmContext
-): AsmToken =
-  template addCaptured: untyped =
-    yield (
-      sec, 
-      captured.makeStrValNode(c.strings), 
-      det
-    )
-    captured = ""
+type
+  TokenizerFlag = enum
+    InComment
+    InLineComment
+    IntelSyntax
+    InInjectExpr
+
+  Tokenizer = object
+    # We guarantee that a whole line is in the captured in asmTemplate section
+    captured: string
+
+    line: int # rel to asm stmt
+    col: int
+
+    sec: int
+    det: Det = AsmTemplate
+    parCnt: int
+
+    # Comments info
+    oldChar: char
+    flags: set[TokenizerFlag]
+
+
+using self: var Tokenizer
+
+template yieldCaptured: untyped =
+  yield (
+    self.sec, 
+    self.captured.makeStrValNode(c.strings), 
+    self.det,
+    PackedLineInfo(0)
+  )
+  self.captured = ""
   
-  template maybeAddCaptured: untyped =
-    if captured != "":
-      addCaptured()
-  
-  var sec = 0
-  var det: Det = AsmTemplate
-  var left = 0
-  var captured = ""
-  var nPar = 0
-  
-  # handling comments
-  var
-    inComment = false # current char in comment(note: comment chars is skipped)
-    isLineComment = false
-    foundCommentStartSym = false
-    foundCommentEndSym = false
+template maybeYieldCaptured: untyped =
+  if self.captured != "": yieldCaptured()
 
-  for ch in sons(t, n):
-    case t[ch].kind
-      of Verbatim:
-        let s = verbatims[t[ch].litId]
+template tokenizeString(self; s: string) =
+  for i in  0..<s.len:
+    inc self.col
+    case s[i]:
+    of '/':
+      case self.oldChar:
+      of '/': incl(self.flags, InLineComment) #"//", it's not supported by normal gas, but cool (// can work without newlines)
+      of '*': excl(self.flags, InComment) #"*/"
+      of ' ', '\t', '\n': incl(self.flags, InLineComment) # "/sth"
+      else: discard
+    of '*':
+      if self.oldChar == '/':
+        incl(self.flags, InComment) #"/*"
+    of '#', '@': incl(self.flags, InLineComment) # '#' and '@' awkward GAS comments. It makes it not arch specific.
+    # how to resolve @ccc ?
 
-        for i in 0..s.high:
+    # memory clobber is recomended to use with threads
 
-          # Comments
-          if sec > 0 and foundCommentStartSym:
-            # "/?"
-            if s[i] == '/':
-              # "//"
-              inComment = true
-              isLineComment = true
-            elif s[i] == '*':
-              # "/*"
-              inComment = true
-              isLineComment = false
-            foundCommentStartSym = false # updates it
-          
-          if sec > 0 and not foundCommentStartSym and s[i] == '*':
-            #"(!/)*"
-            foundCommentEndSym = true
-          elif sec > 0 and foundCommentEndSym: # "*?"
-            if s[i] == '/': # "*/"
-              inComment = false
-              # delete captured '/'
-              captured = ""
-              continue
-            foundCommentEndSym = false
-          if sec > 0 and s[i] == '/': # '/'
-            if captured != "/":
-              maybeAddCaptured()
-            foundCommentStartSym = true
-          if sec > 0 and s[i] == '\n' and inComment:
-            if not isLineComment: # /* comment \n
-              raiseAssert """expected "*/", not "*""" & s[i] & """" in asm operand"""
-            inComment = false
-            # delete captured '/'
-            captured = ""
-            continue
-          if inComment:
-            # skip commented syms
-            continue
+    of '\n':
+      if self.det == AsmTemplate: maybeYieldCaptured
+      excl(self.flags, InLineComment)
+      inc self.line
+      self.col = 0
+    
+    of '[': self.det = SymbolicName
+    of ']':
+      if self.det != SymbolicName:
+        raiseAssert "expected: ']'"
+      yieldCaptured()
+      self.det = Constraint
 
-          # Inject expr parens
-          # countParens()
+    of '(':
+      inc self.parCnt
+      incl(self.flags, InInjectExpr)
+      yieldCaptured()
+      self.det = InjectExpr
+      
+    of ')':
+      dec self.parCnt
+      if self.parCnt == 0:
+        excl(self.flags, InInjectExpr)
+        echo "cap: '", self.captured & "'"
+        maybeYieldCaptured
 
-          if s[i] == '(':
-            inc nPar
-          elif s[i] == ')':
-            if nPar > 1:
-              captured.add ')'
+    of ':':
+      if self.det == AsmTemplate: maybeYieldCaptured
+      self.captured = ""
+      inc self.sec
+      
+      self.det = 
+        case self.sec
+        of 1, 2: Constraint
+        of 3: Clobber
+        of 4: GotoLabel
+        else:
+          raiseAssert "Invalid section"
 
-            dec nPar
-          
-          if nPar > 1:
-            captured.add s[i]
-            # no need parsing of expr
-            continue
-
-          
-          if s[i] == ':':
-            # if sec == 0: # det == AsmTemplate
-            #   yield (
-            #     sec, 
-            #     s[left..i - 1].makeStrValNode(c.strings), 
-            #     det
-            #   )
-              
-            maybeAddCaptured()
-            inc sec
-            # inc det
-            left = i + 1
-              
-            captured = ""
-
-            if sec in 1..2:
-              # default det for operands
-              det = Constraint
-            elif sec == 3:
-              det = Clobber
-            elif sec == 4:
-              det = GotoLabel
-          
-          # elif s[i] == '\n' and sec == 0:
-          #   # split the string
-          #   maybeAddCaptured()
-          #   left = i + 1
-
-          elif sec == 0 and det == AsmTemplate:
-            captured.add s[i]
-
-          elif sec > 0:
-            case s[i]:
-            of '[':
-              # start of asm symbolic name
-              det = SymbolicName
-            
-            of ']':
-              if det != SymbolicName:
-                raiseAssert "expected: ']'"
-              
-              addCaptured()
-
-              det = Constraint
-              # s[capturedStart .. i - 1]
-            
-            of '(':              
-              addCaptured() # add asm constraint
-              det = InjectExpr
-            
-            of ')':
-              if det != InjectExpr:
-                raiseAssert "expected: ')'"
-              
-              maybeAddCaptured()
-            
-            of ',':
-              if sec in 1..2:
-                det = Constraint
-              
-              if sec in {3, 4}:
-                maybeAddCaptured()
-              
-              yield (
-                sec,
-                makeEmpty(),
-                Delimiter
-              )
-            
-            # Capture
-            # elif sec == 0 and det == AsmTemplate:
-            #   # asm template should not change,
-            #   # so we don't skip spaces, etc.
-            #   captured.add s[i]
-
-            elif (
-              det in {
-                SymbolicName, 
-                Constraint, 
-                InjectExpr, 
-                Clobber,
-                GotoLabel
-              } and 
-              s[i] notin {' ', '\n', '\t'}
-            ): captured.add s[i]
-            else: discard
-
-      else:
-        left = 0
-        if captured == "/":
-          continue
-        maybeAddCaptured()
-        
+    of ',':
+      if self.sec > 0:
         yield (
-          sec,
-          ch.makeNodePosNode,
-          det
+          self.sec,
+          makeEmpty(),
+          Delimiter,
+          PackedLineInfo.default
         )
 
-  if sec == 0:
-    # : not specified 
-    yield (
-      sec, 
-      verbatims[t[lastSon(t, n)].litId].makeStrValNode(c.strings), 
-      det
-    )
-  elif sec > 2:
-    maybeAddCaptured()
+    else: discard
+
+    self.oldChar = s[i]
+    if (
+      s[i] notin {'\n', '\r', '\t', ':', '(', ')', '[', ']', ' '} or 
+      self.sec == 0 and s[i] == ' ') and {InLineComment, InComment} * self.flags == {}:
+      self.captured.add s[i]
+
+iterator asmTokens*(
+  t: Tree, n: NodePos, verbatims: BiTable[string];
+  man: LineInfoManager,
+  c: var AsmContext
+): AsmToken =
+  let (_, asmStartLine, leftOffset) = man.unpack(t[n].info) 
+  var self = Tokenizer()
+  for ch in sons(t, n):
+    case t[ch].kind
+    of Verbatim:
+      let s = verbatims[t[ch].litId]
+      self.tokenizeString(s)
+    else:
+      self.oldChar = '\0' # inject expr instead of old char
+      maybeYieldCaptured
+      
+      yield (
+        self.sec,
+        ch.makeNodePosNode,
+        self.det,
+        PackedLineInfo.default
+      )
+  maybeYieldCaptured
+
+  if self.parCnt > 0:
+    raiseAssert "expected: ')'"
+  elif self.parCnt < 0:
+    raiseAssert "expected: '('"
   
-  if sec > 4:
-    raiseAssert"must be maximum 4 asm sections"
+  if InComment in self.flags:
+    raiseAssert "Multi-Line comment is not closed"
+
 
 const
   sections = [
@@ -343,7 +287,7 @@ template build*(tree: var GccAsmTree; kind: AsmNodeKind; body: untyped) =
   body
   patch(tree, pos)
 
-proc parseGccAsm*(t: Tree, n: NodePos; verbatims: BiTable[string]; c: var AsmContext): GccAsmTree =
+proc parseGccAsm*(t: Tree, n: NodePos; verbatims: BiTable[string]; man: LineInfoManager, c: var AsmContext): GccAsmTree =
   result = GccAsmTree()
   var
     pos = prepare(result, AsmTemplate)
@@ -365,18 +309,17 @@ proc parseGccAsm*(t: Tree, n: NodePos; verbatims: BiTable[string]; c: var AsmCon
     constraint = emptyNode(AsmStrVal)
     injectExpr = @[]
 
-  for i in asmTokens(t, n, verbatims, c):
+  for i in asmTokens(t, n, verbatims, man, c):
     when defined(nir.debugAsmParsing):
       echo i
 
-    if i.sec != oldSec:
+    if i.sec != oldSec:# after
       # next Node
       patch(result, pos)
-      if oldSec in operandSections:
-        result.build sections[oldSec]:
-          addLastOperand
       pos = prepare(result, sections[i.sec])
-    
+      if oldSec in operandSections:
+        addLastOperand
+
     case i.det:
     of AsmTemplate, Clobber, GotoLabel: result.nodes.add i.node
     
@@ -422,3 +365,4 @@ proc repr*(t: GccAsmTree; strings = BiTable[string].default): string =
   while i < t.nodes.len:
     addRepr t, NodePos(i), result, strings
     nextChild t, i
+  
