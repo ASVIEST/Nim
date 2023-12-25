@@ -2597,17 +2597,18 @@ method foo(x: Base) {.base.} = discard
 It gives an error: method `foo` can be defined only in the same module with its type (Base).
 
 
-inlineAsmSyntax pragma
-=============
+asmSyntax pragma
+================
 
-.. note:: This logic is only available for NIR, otherwise the pragma will be ignored.
-`inlineAsmSyntax` pragma allowing specify target inline assembler syntax in `asm` stmt.
-It allows to resolve some overloads.
+The `asmSyntax` pragma is used to specify target inline assembler syntax in an `asm` statement.
 
-For example, ICC supports both gcc and vcc. `inlineAsmSyntax` says to produce asm code that uses gcc's inline asm syntax. It also prevents compiling code with different of the target CC inline asm syntax, i.e. it will not allow gcc inline asm code to be compiled with vcc.
+It prevents compiling code with different of the target CC inline asm syntax, i.e. it will not allow gcc inline asm code to be compiled with vcc.
+
 ```nim
 proc nothing() =
-  asm {.inlineAsmSyntax: "gcc".}"""
+  asm {.asmSyntax: "gcc".}"""
     nop
   """
 ```
+
+The current C(C++) backend implementation cannot generate code for gcc and for vcc at the same time. For example, `{.asmSyntax: "vcc".}` with the ICC compiler will not generate code with intel asm syntax, even though ICC can use both gcc-like and vcc-like asm.
