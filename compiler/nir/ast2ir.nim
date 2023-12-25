@@ -2541,7 +2541,7 @@ proc genAsm(c: var ProcCon; n: PNode) =
   var inlineAsmSyntax = ""
   if (let p = n[0]; p).kind == nkPragma:
     for i in p:
-      if whichPragma(i) == wInlineAsmSyntax:
+      if whichPragma(i) == wAsmSyntax:
         inlineAsmSyntax = i[1].strVal
   
   build c.code, info, Emit:
