@@ -242,6 +242,7 @@ iterator asmTokens*(
       self.tokenizeString(s)
     else:
       self.oldChar = '\0' # inject expr instead of old char
+      self.lineContentStarted = true
       maybeYieldCaptured
       
       yield (
