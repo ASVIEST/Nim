@@ -123,8 +123,9 @@ type
   Tokenizer = object
     # We guarantee that a whole line is in the captured in asmTemplate section
     captured: string
+    lineContentStarted: bool
 
-    line: int # rel to asm stmt
+    line: int # relative to asm stmt (not for module)
     col: int
 
     sec: int
@@ -173,6 +174,7 @@ template tokenizeString(self; s: string) =
       excl(self.flags, InLineComment)
       inc self.line
       self.col = 0
+      self.lineContentStarted = false
     
     of '[': self.det = SymbolicName
     of ']':
@@ -221,9 +223,10 @@ template tokenizeString(self; s: string) =
     self.oldChar = s[i]
     if (
       s[i] notin {'\n', '\r', '\t', ':', '(', ')', '[', ']', ' ', '/'} or 
-      (self.sec == 0 and s[i] == ' ')# and not self.beforeLineContentStart)
+      (self.sec == 0 and s[i] == ' ' and self.lineContentStarted)
     ) and {InLineComment, InComment} * self.flags == {}:
       self.captured.add s[i]
+      self.lineContentStarted = true
 
 iterator asmTokens*(
   t: Tree, n: NodePos, verbatims: BiTable[string];
