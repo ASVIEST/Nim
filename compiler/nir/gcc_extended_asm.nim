@@ -158,7 +158,7 @@ template tokenizeString(self; s: string) =
       case self.oldChar:
       of '/': incl(self.flags, InLineComment) #"//", it's not supported by normal gas, but cool (// can work without newlines)
       of '*': excl(self.flags, InComment) #"*/"
-      of ' ', '\t', '\n': incl(self.flags, InLineComment) # "/sth"
+      of '\n': incl(self.flags, InLineComment) # "/sth in the new line"
       else: discard
     of '*':
       if self.oldChar == '/':
@@ -220,8 +220,9 @@ template tokenizeString(self; s: string) =
 
     self.oldChar = s[i]
     if (
-      s[i] notin {'\n', '\r', '\t', ':', '(', ')', '[', ']', ' '} or 
-      self.sec == 0 and s[i] == ' ') and {InLineComment, InComment} * self.flags == {}:
+      s[i] notin {'\n', '\r', '\t', ':', '(', ')', '[', ']', ' ', '/'} or 
+      (self.sec == 0 and s[i] == ' ')# and not self.beforeLineContentStart)
+    ) and {InLineComment, InComment} * self.flags == {}:
       self.captured.add s[i]
 
 iterator asmTokens*(
