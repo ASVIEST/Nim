@@ -217,12 +217,13 @@ template tokenizeString(self; s: string) =
           Delimiter,
           PackedLineInfo.default
         )
+      if self.sec in operandSections: self.det = Constraint
 
     else: discard
 
     self.oldChar = s[i]
     if (
-      s[i] notin {'\n', '\r', '\t', ':', '(', ')', '[', ']', ' ', '/'} or 
+      s[i] notin {'\n', '\r', '\t', ':', '(', ')', '[', ']', ' ', '/', ','} or 
       (self.sec == 0 and s[i] == ' ' and self.lineContentStarted)
     ) and {InLineComment, InComment} * self.flags == {}:
       self.captured.add s[i]
@@ -336,6 +337,9 @@ proc parseGccAsm*(t: Tree, n: NodePos; verbatims: BiTable[string]; man: LineInfo
     of InjectExpr: injectExpr.add i.node
     of Delimiter:
       if i.sec in operandSections: addLastOperand
+      patch(result, pos)
+      pos = prepare(result, sections[i.sec])
+    
     oldSec = i.sec
   if oldSec in operandSections: addLastOperand
   patch(result, pos)
