@@ -193,7 +193,6 @@ template tokenizeString(self; s: string) =
       dec self.parCnt
       if self.parCnt == 0:
         excl(self.flags, InInjectExpr)
-        echo "cap: '", self.captured & "'"
         maybeYieldCaptured
 
     of ':':
