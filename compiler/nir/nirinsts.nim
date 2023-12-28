@@ -41,7 +41,6 @@ type
     CheckedGoto,
     LoopLabel,
     GotoLoop,
-    EmitTarget,
     InfoId,
     Verbatim,  # last atom
 
@@ -127,16 +126,14 @@ type
     DllImport,
     DllExport,
     ObjExport,
-    AsmNoStackFrame
+    AsmNoStackFrame,
+    EmitAsm,
+    EmitCode
   
   InfoKey* = enum
     IsGlobal
     InPure
     InlineAsmSyntax
-
-  EmitTargetKind* = enum
-    Asm
-    Code
 
 const
   LastAtomicValue = Verbatim
@@ -485,8 +482,9 @@ proc addImmediateVal*(t: var Tree; info: PackedLineInfo; x: int) =
 proc addPragmaId*(t: var Tree; info: PackedLineInfo; x: PragmaKey) =
   t.nodes.add Instr(x: toX(PragmaId, uint32(x)), info: info)
 
-proc addEmitTarget*(t: var Tree; info: PackedLineInfo; x: EmitTargetKind) =
-  t.nodes.add Instr(x: toX(EmitTarget, uint32(x)), info: info)
+proc addEmitTarget*(t: var Tree; info: PackedLineInfo; x: PragmaKey) =
+  assert x in {EmitAsm, EmitCode}
+  addPragmaId(t, info, x)
 
 proc addIntVal*(t: var Tree; integers: var BiTable[int64]; info: PackedLineInfo; typ: TypeId; x: int64) =
   buildTyped t, info, NumberConv, typ:
@@ -593,9 +591,6 @@ proc toString*(t: Tree; pos: NodePos; strings: BiTable[string], integers: BiTabl
   of SymUse:
     r.add "SymUse "
     r.add localName(SymId t[pos].operand)
-  of EmitTarget:
-    r.add "EmitTarget "
-    r.add $cast[EmitTargetKind](t[pos].operand)
   of PragmaId:
     r.add $cast[PragmaKey](t[pos].operand)
   of InfoId:

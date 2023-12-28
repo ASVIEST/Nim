@@ -2545,7 +2545,7 @@ proc genAsm(c: var ProcCon; n: PNode) =
         inlineAsmSyntax = i[1].strVal
   
   build c.code, info, Emit:
-    c.code.addEmitTarget info, Asm
+    c.code.addEmitTarget info, EmitAsm
 
     c.code.addBoolInfo info, IsGlobal, c.prc == nil
     c.code.addBoolInfo info, InPure, (

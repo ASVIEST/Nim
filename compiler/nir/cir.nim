@@ -872,11 +872,11 @@ proc gen(c: var GeneratedCode; t: Tree; n: NodePos) =
   of Emit:
     requireInfo t, n, IsGlobal
     let
-      target = cast[EmitTargetKind](t[n.firstSon].rawOperand)
+      target = cast[PragmaKey](t[n.firstSon].rawOperand)
       code = lastSon(t, n)
 
     case target
-    of Asm:
+    of EmitAsm:
       requireInfo t, n, InPure
 
       # Resolve asm overloads (as example for icc inlineAsmSyntax pragma must be specified)
@@ -910,11 +910,10 @@ proc gen(c: var GeneratedCode; t: Tree; n: NodePos) =
         ), "Invalid basic asm. Basic asm should be only one verbatim"
         genGccAsm(c, t, code)
 
-    of Code:
+    of EmitCode:
       raiseAssert"not supported"
-
-  of EmitTarget:
-    discard
+    else:
+      raiseAssert "emit pragmas must be in {EmitAsm, EmitCode}"
 
   of EmitCode:
     for ch in sons(t, n):
