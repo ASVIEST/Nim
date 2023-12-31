@@ -127,8 +127,7 @@ type
     DllExport,
     ObjExport,
     AsmNoStackFrame,
-    EmitAsm,
-    EmitCode
+    EmitAsm, EmitCode
   
   InfoKey* = enum
     IsGlobal

@@ -107,6 +107,7 @@ const
     AsmClobber,
     AsmGotoLabel
   ]
+  asmSections* = sections
   outputOperandSection = 1
   inputOperandSection = 2
   clobberSection = 3
@@ -223,7 +224,8 @@ template tokenizeString(self; s: string) =
     self.oldChar = s[i]
     if (
       s[i] notin {'\n', '\r', '\t', ':', '(', ')', '[', ']', ' ', '/', ','} or 
-      (self.sec == 0 and s[i] == ' ' and self.lineContentStarted)
+      (self.sec == 0 and s[i] == ' ' and self.lineContentStarted) or
+      (InInjectExpr in self.flags and s[i] notin {'(', ')'})
     ) and {InLineComment, InComment} * self.flags == {}:
       self.captured.add s[i]
       self.lineContentStarted = true
@@ -286,6 +288,12 @@ iterator sons*(tree: GccAsmTree; n: NodePos): NodePos =
     yield NodePos pos
     nextChild tree, pos
 
+iterator sons*(tree: GccAsmTree): NodePos =
+  var i = 0
+  while i < tree.nodes.len:
+    yield NodePos i
+    nextChild tree, i
+
 proc prepare*(tree: var GccAsmTree; kind: AsmNodeKind): PatchPos =
   result = PatchPos tree.nodes.len
   tree.nodes.add GccAsmNode(x: toX(kind, 1'u32))
@@ -294,6 +302,21 @@ template build*(tree: var GccAsmTree; kind: AsmNodeKind; body: untyped) =
   let pos = prepare(tree, kind)
   body
   patch(tree, pos)
+
+template `[]`*(t: GccAsmTree; n: NodePos): GccAsmNode = t.nodes[n.int]
+
+proc span(tree: GccAsmTree; pos: int): int {.inline.} =
+  if tree.nodes[pos].kind <= LastAtomicValue: 1 else: int(tree.nodes[pos].operand)
+
+proc isAtom(tree: GccAsmTree; pos: int): bool {.inline.} = tree.nodes[pos].kind <= LastAtomicValue
+proc isAtom(tree: GccAsmTree; pos: NodePos): bool {.inline.} = tree[pos].kind <= LastAtomicValue
+
+proc sons3*(tree: GccAsmTree; n: NodePos): (NodePos, NodePos, NodePos) {.inline.} =
+  assert(not isAtom(tree, n))
+  let a = n.int+1
+  let b = a + span(tree, a)
+  let c = b + span(tree, b)
+  result = (NodePos a, NodePos b, NodePos c)
 
 proc parseGccAsm*(t: Tree, n: NodePos; verbatims: BiTable[string]; man: LineInfoManager, c: var AsmContext): GccAsmTree =
   result = GccAsmTree()
@@ -323,10 +346,9 @@ proc parseGccAsm*(t: Tree, n: NodePos; verbatims: BiTable[string]; man: LineInfo
 
     if i.sec != oldSec:# after
       # next Node
+      if oldSec in operandSections: addLastOperand
       patch(result, pos)
       pos = prepare(result, sections[i.sec])
-      if oldSec in operandSections:
-        addLastOperand
 
     case i.det:
     of AsmTemplate, Clobber, GotoLabel: result.nodes.add i.node
@@ -345,34 +367,37 @@ proc parseGccAsm*(t: Tree, n: NodePos; verbatims: BiTable[string]; man: LineInfo
 
 
 # Repr's
-proc addRepr(t: GccAsmTree, n: NodePos; r: var string; strings = BiTable[string].default; offset = 0) =
+proc render(t: GccAsmTree, n: NodePos; r: var string; strings = BiTable[string].default; offset = 0) =
   for i in 1..offset:
     r.add "  "
   
   case t.nodes[n.int].kind:
     of AsmStrVal:
       r.add '"'
-      r.add strings[LitId t.nodes[n.int].operand]
+      r.add strings[LitId t[n].operand]
       r.add '"'
 
-    of AsmNodeUse: r.add "NodeUse " & $t.nodes[n.int].operand # just a nodepos
+    of AsmNodeUse: r.add "NodeUse " & $t[n].operand # just a nodepos
     of AsmEmpty: discard
     
     else:
-      r.add $t.nodes[n.int].kind
+      r.add $t[n].kind
       r.add " {"
       r.add '\n'
 
       for i in sons(t, n):
-        addRepr(t, i, r, strings, offset + 1)
+        render(t, i, r, strings, offset + 1)
         r.add "\n"
       
       for i in 1..offset: r.add "  "
       r.add "}\n"
 
-proc repr*(t: GccAsmTree; strings = BiTable[string].default): string =
+proc render*(t: GccAsmTree; r: var string; strings = BiTable[string].default) =
+  for i in sons(t):
+    render t, i, r, strings
+
+proc render*(t: GccAsmTree; strings = BiTable[string].default): string =
   result = ""
-  var i = 0
-  while i < t.nodes.len:
-    addRepr t, NodePos(i), result, strings
-    nextChild t, i
+  render(t, result, strings)
+
+# Asm analysis

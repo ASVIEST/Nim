@@ -562,45 +562,65 @@ template moveToDataSection(body: untyped) =
     c.data.add c.code[i]
   setLen c.code, oldLen
 
+import gcc_extended_asm
+
+proc genGccAsmAux(c: var GeneratedCode; t: GccAsmTree; n: NodePos; ac: AsmContext; sec: var int; nirTree: Tree) =
+  template genGccAsmAux(n: NodePos): untyped = genGccAsmAux(c, t, n, ac, sec, nirTree)
+  case t[n].kind:
+  of AsmTemplate:
+    var isFirstChild = true
+    for ch in sons(t, n):
+      if t[ch].kind == AsmStrVal and not isFirstChild:
+        c.add "\\n\" &"
+        c.add NewLine
+      if t[ch].kind == AsmStrVal: c.add Quote
+      genGccAsmAux(ch)
+      isFirstChild = false
+    c.add Quote
+    c.add NewLine
+    inc sec
+    echo sec
+  of AsmOutputOperand, AsmInputOperand:
+    if asmSections[sec - 1] < t[n].kind:
+      c.add NewLine
+      c.add Colon
+      inc sec
+    else:
+      c.add Comma
+    
+    let (injectExpr, symbolicName, constraint) = sons3(t, n)
+    if ac.strings[LitId t[symbolicName].operand] != "":
+      c.add BracketLe
+      genGccAsmAux(symbolicName)
+      c.add BracketRi
+    genGccAsmAux(constraint)
+    genGccAsmAux(injectExpr)
+  
+  of AsmInjectExpr:
+    c.add ParLe
+    for ch in sons(t, n):
+      genGccAsmAux(ch)
+    c.add ParRi
+  of AsmNodeUse:
+    gen(c, nirTree, NodePos t[n].operand)
+  of AsmStrVal:
+    c.add ac.strings[LitId t[n].operand]
+  else: discard
+
 proc genGccAsm(c: var GeneratedCode; t: Tree; n: NodePos) =
+  var ac = AsmContext()
+  var asmTree = parseGccAsm(t, n, c.m.lit.strings, c.m.man, ac)
+  echo render(asmTree, ac.strings)
+
   c.add "__asm__ "
   c.add ParLe
   c.add NewLine
-
-  var asmTemplate = true
-  var left = 0
-  var s = ""
-
-  template maybeAddQuote =
-    if asmTemplate: c.add Quote
-
-  template findSecUpdate(s: string): bool =
-    var result = false
-    for i in s:
-      if i == ':': result = true
-      if i notin {' ', '\t', '\n'}: break #found char
-    result
-
-  maybeAddQuote
-  for ch in sons(t, n):
-    if t[ch].kind == Verbatim:
-      s = c.m.lit.strings[t[ch].litId]
-      left = 0
-      for i in 0..s.high:
-        if s[i] == '\n':
-          c.add s[left..i - 1]
-          if asmTemplate: c.add r"\n"
-          maybeAddQuote
-          left = i + 1
-          c.add NewLine
-          if not findSecUpdate(s[i+1..^1]): maybeAddQuote # next '"'
-        elif s[i] == ':': asmTemplate = false
-    else:
-      c.add s[left..^1]
-      c.gen(t, ch)
-  if not findSecUpdate(s):
-    c.add s[left..^1]
-    maybeAddQuote
+  
+  var sec = 0
+  for i in sons(asmTree):
+    genGccAsmAux(c, asmTree, i, ac, sec, t)
+  
+  c.add NewLine
   c.add ParRi
   c.add Semicolon
 
