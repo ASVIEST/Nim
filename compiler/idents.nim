@@ -66,13 +66,18 @@ proc cmpExact(a, b: cstring, blen: int): int =
   if result == 0:
     if a[i] != '\0': result = 1
 
-proc getIdent*(ic: IdentCache; identifier: cstring, length: int, h: Hash): PIdent =
+proc getIdent*(ic: IdentCache; identifier: cstring, length: int, h: Hash; insensitive = true): PIdent =
   var idx = h and high(ic.buckets)
   result = ic.buckets[idx]
   var last: PIdent = nil
   var id = 0
   while result != nil:
     if cmpExact(cstring(result.s), identifier, length) == 0:
+      if not insensitive:
+        # when getIdent sensitive, we need to update the ident after lexer
+        inc(ic.wordCounter)
+        result.id = -ic.wordCounter
+
       if last != nil:
         # make access to last looked up identifier faster:
         last.next = result.next
@@ -96,12 +101,12 @@ proc getIdent*(ic: IdentCache; identifier: cstring, length: int, h: Hash): PIden
   else:
     result.id = id
 
-proc getIdent*(ic: IdentCache; identifier: string): PIdent =
+proc getIdent*(ic: IdentCache; identifier: string; insensitive = true): PIdent =
   result = getIdent(ic, cstring(identifier), identifier.len,
-                    hashIgnoreStyle(identifier))
+                    hashIgnoreStyle(identifier), insensitive)
 
-proc getIdent*(ic: IdentCache; identifier: string, h: Hash): PIdent =
-  result = getIdent(ic, cstring(identifier), identifier.len, h)
+proc getIdent*(ic: IdentCache; identifier: string, h: Hash; insensitive = true): PIdent =
+  result = getIdent(ic, cstring(identifier), identifier.len, h, insensitive)
 
 proc newIdentCache*(): IdentCache =
   result = IdentCache()

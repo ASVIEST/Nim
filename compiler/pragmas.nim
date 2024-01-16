@@ -65,7 +65,7 @@ const
     wStyleChecks, wAssertions,
     wWarnings, wHints,
     wLineDir, wStackTrace, wLineTrace, wOptimization,
-    wFloatChecks, wInfChecks, wNanChecks}
+    wFloatChecks, wInfChecks, wNanChecks, wSensitivity}
   lambdaPragmas* = {FirstCallConv..LastCallConv,
     wNoSideEffect, wSideEffect, wNoreturn, wNosinks, wDynlib, wHeader,
     wThread, wAsmNoStackFrame,
@@ -1130,6 +1130,12 @@ proc singlePragma(c: PContext, sym: PSym, n: PNode, i: var int,
       of wDefine: processDefine(c, it, sym)
       of wUndef: processUndef(c, it)
       of wCompile: processCompile(c, it)
+      of wSensitivity:
+        if not isTopLevel(c):
+          localError(c.config, n.info, "'sensitivity' pragma only valid as toplevel statement or as a import pragma")
+        if isTurnedOn(c, it): c.module.flags.incl sfSensitiveModule
+        else: c.module.flags.excl sfSensitiveModule
+        recordPragma(c, it, $wSensitivity, $on)
       of wLink: processLink(c, it)
       of wPassl:
         let s = expectStrLit(c, it)

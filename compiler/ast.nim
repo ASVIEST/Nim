@@ -256,6 +256,7 @@ type
     sfSideEffect,     # proc may have side effects; cannot prove it has none
     sfMainModule,     # module is the main module
     sfSystemModule,   # module is the system module
+    sfSensitiveModule # module is case sensitive
     sfNoReturn,       # proc never returns (an exit proc)
     sfAddrTaken,      # the variable's address is taken (ex- or implicitly);
                       # *OR*: a proc is indirectly called (used as first class)

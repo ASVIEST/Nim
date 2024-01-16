@@ -69,7 +69,8 @@ proc considerQuotedIdent*(c: PContext; n: PNode, origin: PNode = nil): PIdent =
 template addSym*(scope: PScope, s: PSym) =
   strTableAdd(scope.symbols, s)
 
-proc addUniqueSym*(scope: PScope, s: PSym): PSym =
+proc addUniqueSym*(scope: PScope, s: PSym; cache: IdentCache; sensitive = false): PSym =
+  s.name = getIdent(cache, s.name.s, not sensitive)
   result = strTableInclReportConflict(scope.symbols, s)
 
 proc openScope*(c: PContext): PScope {.discardable.} =
@@ -382,7 +383,7 @@ proc wrongRedefinition*(c: PContext; info: TLineInfo, s: string;
 # proc addDecl*(c: PContext, sym: PSym, info = sym.info, scope = c.currentScope) {.inline.} =
 proc addDeclAt*(c: PContext; scope: PScope, sym: PSym, info: TLineInfo) =
   if sym.name.id == ord(wUnderscore): return
-  let conflict = scope.addUniqueSym(sym)
+  let conflict = scope.addUniqueSym(sym, c.cache, sfSensitiveModule in c.module.flags)
   if conflict != nil:
     if sym.kind == skModule and conflict.kind == skModule:
       # e.g.: import foo; import foo
@@ -406,7 +407,7 @@ proc addDecl*(c: PContext, sym: PSym) {.inline.} =
   addDeclAt(c, c.currentScope, sym)
 
 proc addPrelimDecl*(c: PContext, sym: PSym) =
-  discard c.currentScope.addUniqueSym(sym)
+  discard c.currentScope.addUniqueSym(sym, c.cache, sfSensitiveModule in c.module.flags)
 
 from ic / ic import addHidden
 

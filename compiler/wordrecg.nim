@@ -122,6 +122,7 @@ type
     # end of codegen keywords
 
     wBitsize = "bitsize", wImportHidden = "all",
+    wSensitivity = "sensitivity",
     wSendable = "sendable"
 
   TSpecialWords* = set[TSpecialWord]
