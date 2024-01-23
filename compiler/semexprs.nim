@@ -54,17 +54,6 @@ proc semOperand(c: PContext, n: PNode, flags: TExprFlags = {}): PNode =
   # same as 'semExprWithType' but doesn't check for proc vars
   result = semExpr(c, n, flags + {efOperand, efAllowSymChoice})
   if result.typ != nil:
-    # XXX tyGenericInst here?
-    if result.typ.kind == tyProc and hasUnresolvedParams(result, {efOperand}):
-      #and tfUnresolved in result.typ.flags:
-      let owner = result.typ.owner
-      let err =
-        # consistent error message with evaltempl/semMacroExpr
-        if owner != nil and owner.kind in {skTemplate, skMacro}:
-          errMissingGenericParamsForTemplate % n.renderTree
-        else:
-          errProcHasNoConcreteType % n.renderTree
-      localError(c.config, n.info, err)
     if result.typ.kind in {tyVar, tyLent}: result = newDeref(result)
   elif {efWantStmt, efAllowStmt} * flags != {}:
     result.typ = newTypeS(tyVoid, c)
@@ -1012,6 +1001,30 @@ proc bracketedMacro(n: PNode): PSym =
       result = nil
   else:
     result = nil
+
+proc finishOperand(c: PContext, a: PNode): PNode =
+  if a.typ.isNil:
+    result = c.semOperand(c, a, {efDetermineType})
+  else:
+    result = a
+  # XXX tyGenericInst here?
+  if result.typ.kind == tyProc and hasUnresolvedParams(result, {efOperand}):
+    #and tfUnresolved in result.typ.flags:
+    let owner = result.typ.owner
+    let err =
+      # consistent error message with evaltempl/semMacroExpr
+      if owner != nil and owner.kind in {skTemplate, skMacro}:
+        errMissingGenericParamsForTemplate % a.renderTree
+      else:
+        errProcHasNoConcreteType % a.renderTree
+    localError(c.config, a.info, err)
+  considerGenSyms(c, result)
+
+proc semFinishOperands(c: PContext; n: PNode) =
+  # this needs to be called to ensure that after overloading resolution every
+  # argument has been sem'checked:
+  for i in 1..<n.len:
+    n[i] = finishOperand(c, n[i])
 
 proc afterCallActions(c: PContext; n, orig: PNode, flags: TExprFlags; expectedType: PType = nil): PNode =
   if efNoSemCheck notin flags and n.typ != nil and n.typ.kind == tyError:
@@ -2061,12 +2074,10 @@ proc semYield(c: PContext, n: PNode): PNode =
   if c.p.owner == nil or c.p.owner.kind != skIterator:
     localError(c.config, n.info, errYieldNotAllowedHere)
   elif n[0].kind != nkEmpty:
-    n[0] = semExprWithType(c, n[0]) # check for type compatibility:
     var iterType = c.p.owner.typ
     let restype = iterType[0]
+    n[0] = semExprWithType(c, n[0], {}, restype) # check for type compatibility:
     if restype != nil:
-      if restype.kind != tyUntyped:
-        n[0] = fitNode(c, restype, n[0], n.info)
       if n[0].typ == nil: internalError(c.config, n.info, "semYield")
 
       if resultTypeIsInferrable(restype):
@@ -2074,6 +2085,8 @@ proc semYield(c: PContext, n: PNode): PNode =
         iterType[0] = inferred
         if c.p.resultSym != nil:
           c.p.resultSym.typ = inferred
+      else:
+        n[0] = fitNode(c, restype, n[0], n.info)
 
       semYieldVarResult(c, n, restype)
     else:
@@ -2754,6 +2767,12 @@ proc semTupleFieldsConstr(c: PContext, n: PNode, flags: TExprFlags; expectedType
     # can check if field name matches expected type here
     let expectedElemType = if expected != nil: expected[i] else: nil
     n[i][1] = semExprWithType(c, n[i][1], {}, expectedElemType)
+    if expectedElemType != nil and
+        (expectedElemType.kind != tyNil and not hasEmpty(expectedElemType)):
+      # hasEmpty/nil check is to not break existing code like
+      # `const foo = [(1, {}), (2, {false})]`,
+      # `const foo = if true: (0, nil) else: (1, new(int))`
+      n[i][1] = fitNode(c, expectedElemType, n[i][1], n[i][1].info)
 
     if n[i][1].typ.kind == tyTypeDesc:
       localError(c.config, n[i][1].info, "typedesc not allowed as tuple field.")
@@ -2780,6 +2799,12 @@ proc semTuplePositionsConstr(c: PContext, n: PNode, flags: TExprFlags; expectedT
   for i in 0..<n.len:
     let expectedElemType = if expected != nil: expected[i] else: nil
     n[i] = semExprWithType(c, n[i], {}, expectedElemType)
+    if expectedElemType != nil and
+        (expectedElemType.kind != tyNil and not hasEmpty(expectedElemType)):
+      # hasEmpty/nil check is to not break existing code like
+      # `const foo = [(1, {}), (2, {false})]`,
+      # `const foo = if true: (0, nil) else: (1, new(int))`
+      n[i] = fitNode(c, expectedElemType, n[i], n[i].info)
     addSonSkipIntLit(typ, n[i].typ, c.idgen)
   result.typ = typ
 
