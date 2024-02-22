@@ -9,26 +9,34 @@
 ##     SymUse nimInlineVar # `a`
 ##     Some asm code
 ##   }
-##   AsmOutputOperand {
-##     # [asmSymbolicName] constraint (nimVariableName)
-##     AsmInjectExpr {symUse nimVariableName} # for output it have only one sym (lvalue)
-##     asmSymbolicName # default: ""
-##     constraint
+##   AsmStmtGroup {
+##     AsmOutputOperand {
+##       # [asmSymbolicName] constraint (nimVariableName)
+##       AsmInjectExpr {symUse nimVariableName} # for output it have only one sym (lvalue)
+##       asmSymbolicName # default: ""
+##       constraint
+##     }
 ##   }
-##   AsmInputOperand {
-##     # [asmSymbolicName] constraint (nimExpr)
-##     AsmInjectExpr {
-##       nodeUse nimVariableName
-##     } # (rvalue)
-##     asmSymbolicName # default: ""
-##     constraint
-## }
-##  AsmClobber {
-##    "clobber"
-## }
-##  AsmGotoLabel {
-##    "label" 
-## }
+##   AsmStmtGroup {
+##     AsmInputOperand {
+##       # [asmSymbolicName] constraint (nimExpr)
+##       AsmInjectExpr {
+##         nodeUse nimVariableName
+##       } # (rvalue)
+##       asmSymbolicName # default: ""
+##       constraint
+##     }
+##   }
+##   AsmStmtGroup {
+##     AsmClobber {
+##       "clobber"
+##     }
+##   }
+##   AsmStmtGroup {
+##     AsmGotoLabel {
+##      "label"
+##     }
+##   }
 ## ```
 
 # It can be useful for better asm analysis and 
@@ -62,6 +70,8 @@ type
     AsmInputOperand
     AsmClobber
     AsmGotoLabel
+
+    AsmStmtGroup
 
   GccAsmNode* = object
     x: uint32
@@ -197,7 +207,7 @@ template tokenizeString(self; s: string) =
         maybeYieldCaptured
 
     of ':':
-      if self.det == AsmTemplate: maybeYieldCaptured
+      if self.det in {Det.AsmTemplate, GotoLabel, Clobber}: maybeYieldCaptured
       self.captured = ""
       inc self.sec
       
@@ -211,6 +221,8 @@ template tokenizeString(self; s: string) =
 
     of ',':
       if self.sec > 0:
+        yieldCaptured()
+        
         yield (
           self.sec,
           makeEmpty(),
@@ -279,14 +291,25 @@ proc nextChild(tree: GccAsmTree; pos: var int) {.inline.} =
   else:
     inc pos
 
-iterator sons*(tree: GccAsmTree; n: NodePos): NodePos =
-  var pos = n.int
+template sonsImpl(tree: GccAsmTree, n: NodePos, pos: var int; pre): auto =
   assert tree.nodes[pos].kind > LastAtomicValue
   let last = pos + tree.nodes[pos].operand.int
   inc pos
+  pre
   while pos < last:
     yield NodePos pos
     nextChild tree, pos
+
+iterator sons*(tree: GccAsmTree; n: NodePos): NodePos =
+  var pos = n.int
+  sonsImpl(tree, n, pos):
+    discard
+
+iterator sonsFrom1*(tree: GccAsmTree; n: NodePos): NodePos =
+  var pos = n.int
+  sonsImpl(tree, n, pos):
+    nextChild(tree, pos)
+
 
 iterator sons*(tree: GccAsmTree): NodePos =
   var i = 0
@@ -322,6 +345,7 @@ proc parseGccAsm*(t: Tree, n: NodePos; verbatims: BiTable[string]; man: LineInfo
   result = GccAsmTree()
   var
     pos = prepare(result, AsmTemplate)
+    currentStmtGroup = PatchPos(-1)
     oldSec = 0
 
     # current operand info
@@ -339,6 +363,10 @@ proc parseGccAsm*(t: Tree, n: NodePos; verbatims: BiTable[string]; man: LineInfo
     symbolicName = makeStrValNode("", c.strings)
     constraint = emptyNode(AsmStrVal)
     injectExpr = @[]
+  
+  template maybeEndStmtGroup: untyped =
+    if currentStmtGroup.int != -1 and oldSec >= outputOperandSection:
+      patch(result, currentStmtGroup)
 
   for i in asmTokens(t, n, verbatims, man, c):
     when defined(nir.debugAsmParsing):
@@ -346,8 +374,11 @@ proc parseGccAsm*(t: Tree, n: NodePos; verbatims: BiTable[string]; man: LineInfo
 
     if i.sec != oldSec:# after
       # next Node
-      if oldSec in operandSections: addLastOperand
+      if oldSec in operandSections: addLastOperand()
       patch(result, pos)
+      maybeEndStmtGroup()
+      if i.sec >= outputOperandSection:
+        currentStmtGroup = prepare(result, AsmStmtGroup)
       pos = prepare(result, sections[i.sec])
 
     case i.det:
@@ -357,14 +388,14 @@ proc parseGccAsm*(t: Tree, n: NodePos; verbatims: BiTable[string]; man: LineInfo
     of Constraint: constraint = i.node
     of InjectExpr: injectExpr.add i.node
     of Delimiter:
-      if i.sec in operandSections: addLastOperand
+      if i.sec in operandSections: addLastOperand()
       patch(result, pos)
       pos = prepare(result, sections[i.sec])
     
     oldSec = i.sec
-  if oldSec in operandSections: addLastOperand
+  if oldSec in operandSections: addLastOperand()
   patch(result, pos)
-
+  maybeEndStmtGroup()
 
 # Repr's
 proc render(t: GccAsmTree, n: NodePos; r: var string; strings = BiTable[string].default; offset = 0) =

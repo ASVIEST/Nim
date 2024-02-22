@@ -580,14 +580,17 @@ proc genGccAsmAux(c: var GeneratedCode; t: GccAsmTree; n: NodePos; ac: AsmContex
     c.add NewLine
     inc sec
     echo sec
-  of AsmOutputOperand, AsmInputOperand:
-    if asmSections[sec - 1] < t[n].kind:
-      c.add NewLine
-      c.add Colon
-      inc sec
-    else:
+
+  of AsmStmtGroup:
+    c.add NewLine
+    c.add Colon
+    inc sec
+    genGccAsmAux(n.firstSon)
+    for ch in sonsFrom1(t, n):
       c.add Comma
-    
+      genGccAsmAux(ch)
+
+  of AsmOutputOperand, AsmInputOperand:
     let (injectExpr, symbolicName, constraint) = sons3(t, n)
     if ac.strings[LitId t[symbolicName].operand] != "":
       c.add BracketLe
@@ -605,7 +608,9 @@ proc genGccAsmAux(c: var GeneratedCode; t: GccAsmTree; n: NodePos; ac: AsmContex
     gen(c, nirTree, NodePos t[n].operand)
   of AsmStrVal:
     c.add ac.strings[LitId t[n].operand]
-  else: discard
+  
+  of AsmClobber, AsmGotoLabel: genGccAsmAux(n.firstSon)
+  of AsmEmpty: discard
 
 proc genGccAsm(c: var GeneratedCode; t: Tree; n: NodePos) =
   var ac = AsmContext()
