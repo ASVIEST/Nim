@@ -15,7 +15,7 @@ import
   lineinfos, pathutils
 
 import ../dist/checksums/src/checksums/sha1
-import std/strtabs
+import std/[strtabs, strutils]
 
 proc resetSystemArtifacts*(g: ModuleGraph) =
   magicsys.resetSysTypes(g)
@@ -28,6 +28,12 @@ proc partialInitModule*(result: PSym; graph: ModuleGraph; fileIdx: FileIndex; fi
   setOwner(result, packSym)
   result.position = int fileIdx
 
+proc isNumeric(s: string): bool =
+  for i in s:
+    if not isDigit(i):
+      return false
+  true
+
 proc newModule*(graph: ModuleGraph; fileIdx: FileIndex): PSym =
   let filename = AbsoluteFile toFullPath(graph.config, fileIdx)
   # We cannot call ``newSym`` here, because we have to circumvent the ID
@@ -35,7 +41,7 @@ proc newModule*(graph: ModuleGraph; fileIdx: FileIndex): PSym =
   result = PSym(kindImpl: skModule, itemId: ItemId(module: int32(fileIdx), item: 0'i32),
                 name: getModuleIdent(graph, filename),
                 infoImpl: newLineInfo(fileIdx, 1, 1))
-  if not isNimIdentifier(result.name.s):
+  if not (isNimIdentifier(result.name.s) or isNumeric(result.name.s)):
     rawMessage(graph.config, errGenerated, "invalid module name: '" & result.name.s &
               "'; a module name must be a valid Nim identifier.")
   partialInitModule(result, graph, fileIdx, filename)

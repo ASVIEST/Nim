@@ -23,6 +23,8 @@ proc getModuleName*(conf: ConfigRef; n: PNode): string =
     except ValueError:
       localError(conf, n.info, "invalid path: " & n.strVal)
       result = n.strVal
+  of nkAccQuoted:
+    result = n[0].ident.s
   of nkIdent:
     result = n.ident.s
   of nkSym:
